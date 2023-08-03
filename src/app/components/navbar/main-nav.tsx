@@ -11,7 +11,7 @@ const MainNav = async () => {
 	const user = await currentUser();
 
 	return (
-		<div className='hidden flex-col md:flex bg-slate-700'>
+		<div className='flex-col md:flex bg-slate-700'>
 			<div className='border-b'>
 				<div className='flex h-20 items-center px-4'>
 					<Navbar className='mx-6' />
