@@ -1,12 +1,13 @@
 
 # healthwise.ai
 
-## Overview
+## Overview [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
 
-[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
+
 
 healthwise.ai is a medical diagnoses app ***and not a replacement for a doctor***. It's a web application developed with Next.js, clerk and OpenAI that utilizes artificial intelligence and machine learning algorithms to assist in medical diagnoses. The app provides users with a user-friendly interface to input their symptoms and receive potential diagnoses and recommendations based on the input data and the AI's analysis.
-Features
+
+## Features
 
 - Symptom Input: Users can enter their symptoms into the app through a simple chatbox and intuitive user interface.
 - AI Diagnosis: The app employs advanced AI algorithms to analyze the input symptoms and provide potential medical diagnoses.
