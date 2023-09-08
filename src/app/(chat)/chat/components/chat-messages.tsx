@@ -1,8 +1,8 @@
-"use client";
+'use client';
 
-import { ElementRef, useEffect, useRef, useState } from "react";
-import ChatMessage, { ChatMessageProps } from "./chat-message";
-import React from "react";
+import React from 'react';
+import ChatMessage, { ChatMessageProps } from './chat-message';
+import { ElementRef, useEffect, useRef, useState } from 'react';
 
 interface ChatMessagesProps {
 	messages: ChatMessageProps[];
@@ -10,7 +10,7 @@ interface ChatMessagesProps {
 }
 
 const ChatMessages = ({ messages = [], isLoading }: ChatMessagesProps) => {
-	const scrollRef = useRef<ElementRef<"div">>(null);
+	const scrollRef = useRef<ElementRef<'div'>>(null);
 
 	const [fakeLoading, setFakeLoading] = useState(
 		messages.length === 0 ? true : false
@@ -27,7 +27,7 @@ const ChatMessages = ({ messages = [], isLoading }: ChatMessagesProps) => {
 	}, []);
 
 	useEffect(() => {
-		scrollRef?.current?.scrollIntoView({ behavior: "smooth" });
+		scrollRef?.current?.scrollIntoView({ behavior: 'smooth' });
 	}, [messages.length]);
 
 	return (
