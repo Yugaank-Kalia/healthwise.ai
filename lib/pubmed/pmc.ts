@@ -129,7 +129,7 @@ function parsePMCBody(xml: string): PMCSection[] {
 			}
 		}
 	} else {
-		// No named sections — extract all paragraphs as "body"
+		// No named sections - extract all paragraphs as "body"
 		const text = extractTextContent(body);
 		if (text.length > 50) {
 			sections.push({

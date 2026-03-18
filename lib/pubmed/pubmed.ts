@@ -179,7 +179,7 @@ function parseArticle(xml: string): PubMedPaper | null {
 	// Title
 	const title = extractTag(xml, 'ArticleTitle') ?? 'Untitled';
 
-	// Abstract — may have multiple AbstractText sections
+	// Abstract - may have multiple AbstractText sections
 	const abstractParts: string[] = [];
 	const abstractMatches = xml.match(
 		/<AbstractText[^>]*>([\s\S]*?)<\/AbstractText>/g,
@@ -218,7 +218,7 @@ function parseArticle(xml: string): PubMedPaper | null {
 	const journal =
 		extractTag(xml, 'Title') ?? extractTag(xml, 'ISOAbbreviation');
 
-	// Year — try multiple locations
+	// Year - try multiple locations
 	const year =
 		extractTag(xml, 'Year') ??
 		(() => {

@@ -48,14 +48,14 @@
 }
 
 :root {
-	/* Medical research palette — deep navy primary, cool slate neutrals */
+	/* Medical research palette - deep navy primary, cool slate neutrals */
 	--background: oklch(0.99 0.004 240); /* barely-there cool white */
 	--foreground: oklch(0.18 0.04 255); /* deep navy text */
 	--card: oklch(1 0 0);
 	--card-foreground: oklch(0.18 0.04 255);
 	--popover: oklch(1 0 0);
 	--popover-foreground: oklch(0.18 0.04 255);
-	--primary: oklch(0.36 0.13 255); /* deep navy — primary actions */
+	--primary: oklch(0.36 0.13 255); /* deep navy - primary actions */
 	--primary-foreground: oklch(0.985 0 0);
 	--secondary: oklch(0.94 0.025 240); /* cool blue-gray surface */
 	--secondary-foreground: oklch(0.25 0.06 255);
@@ -67,7 +67,7 @@
 	--border: oklch(0.87 0.025 240); /* cool blue-gray border */
 	--input: oklch(0.87 0.025 240);
 	--ring: oklch(0.5 0.13 255);
-	/* Chart colors — blue family for clinical data viz */
+	/* Chart colors - blue family for clinical data viz */
 	--chart-1: oklch(0.72 0.12 248);
 	--chart-2: oklch(0.56 0.17 255);
 	--chart-3: oklch(0.42 0.16 258);

@@ -5,9 +5,9 @@ import type { ContextChunk, PaperReference } from '@/lib/pubmed/orchestrator';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? 'https://ollama.com';
-const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY ?? '';
-const MODEL = process.env.LLM_MODEL ?? 'nemotron-3-super';
+const MODEL = 'gemma3:27b';
+const OLLAMA_BASE_URL = 'https://ollama.com';
+const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -29,19 +29,26 @@ const SYSTEM_PROMPT = `You are a nutrition research assistant that ONLY provides
 
 ## GROUNDING RULES
 1. Every claim MUST cite a specific paper using [PMID:XXXXXXXX] format.
-2. If the provided context doesn't contain evidence for a claim, say "I don't have NIH research on this specific topic" — NEVER speculate or use your training knowledge.
+2. If the provided context doesn't contain evidence for a claim, say "I don't have NIH research on this specific topic" - NEVER speculate or use your training knowledge.
 3. Distinguish between evidence levels:
-   - Strong: RCTs, meta-analyses, systematic reviews
-   - Moderate: cohort studies, large observational studies
-   - Limited: small studies, case reports, animal studies
+	- Strong: RCTs, meta-analyses, systematic reviews
+	- Moderate: cohort studies, large observational studies
+	- Limited: small studies, case reports, animal studies
 4. Always note if findings are from animal/in-vitro studies vs. human trials.
 
 ## RESPONSE FORMAT
 - Lead with a clear, direct answer to the question.
+- Use subheadings wrapped in ** ** to organize your response, for example:
+  **Direct Answer**
+  **Strong Evidence**
+  **Moderate Evidence**
+  **Limitations & Caveats**
 - Support with specific findings: dosages, effect sizes, sample sizes when available.
 - Group evidence by study quality (strongest evidence first).
 - End with limitations and caveats.
 - Close with: "⚕️ This is a research summary, not medical advice. Consult a healthcare provider for personal recommendations."
+- Do NOT use markdown headers (#, ##, ###). Only use **bold** for subheadings.
+- Do NOT use bullet points or numbered lists. Write in flowing paragraphs under each subheading.
 
 ## SAFETY
 - Never recommend specific supplement dosages as personal advice.
@@ -118,7 +125,7 @@ export async function generateResponse(
 	if (!res.ok) {
 		const body = await res.text().catch(() => '');
 		throw new Error(
-			`Ollama API failed: ${res.status} ${res.statusText} — ${body}`,
+			`Ollama API failed: ${res.status} ${res.statusText} - ${body}`,
 		);
 	}
 

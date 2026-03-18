@@ -18,9 +18,44 @@ const geistMono = Geist({
 });
 
 export const metadata: Metadata = {
-	title: 'healthwise.ai — Your Nutrition Companion',
+	title: {
+		default: 'healthwise.ai - Your Nutrition Companion',
+		template: '%s · healthwise.ai',
+	},
 	description:
 		'Personalized nutrition guidance backed by NIH research. Make smarter food choices with science-driven insights.',
+	metadataBase: new URL('https://healthwise.ai'),
+	openGraph: {
+		type: 'website',
+		siteName: 'healthwise.ai',
+		title: 'healthwise.ai - Your Nutrition Companion',
+		description:
+			'Personalized nutrition guidance backed by NIH research. Make smarter food choices with science-driven insights.',
+		url: 'https://healthwise.ai',
+		images: [
+			{
+				url: '/og-image.png',
+				width: 1200,
+				height: 630,
+				alt: 'healthwise.ai - Your Nutrition Companion',
+			},
+		],
+	},
+	twitter: {
+		card: 'summary_large_image',
+		title: 'healthwise.ai - Your Nutrition Companion',
+		description:
+			'Personalized nutrition guidance backed by NIH research. Make smarter food choices with science-driven insights.',
+		images: ['/og-image.png'],
+	},
+	icons: {
+		icon: '/favicon.ico',
+		apple: '/apple-touch-icon.png',
+	},
+	robots: {
+		index: true,
+		follow: true,
+	},
 };
 
 export default function RootLayout({

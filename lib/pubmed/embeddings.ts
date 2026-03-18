@@ -82,12 +82,12 @@ export async function generateEmbeddingsBatched(
 // We handle both cases.
 
 function normalizeEmbedding(result: FeatureExtractionOutput): number[] {
-	// Already a flat vector — most common for sentence-transformers
+	// Already a flat vector - most common for sentence-transformers
 	if (Array.isArray(result) && typeof result[0] === 'number') {
 		return result as number[];
 	}
 
-	// Token-level embeddings (number[][]) — mean pool them
+	// Token-level embeddings (number[][]) - mean pool them
 	if (
 		Array.isArray(result) &&
 		Array.isArray(result[0]) &&
@@ -110,7 +110,7 @@ function normalizeEmbedding(result: FeatureExtractionOutput): number[] {
 		return pooled;
 	}
 
-	// 3D tensor — flatten first dimension then mean pool
+	// 3D tensor - flatten first dimension then mean pool
 	if (Array.isArray(result) && Array.isArray(result[0])) {
 		const flat = (result as number[][][])[0];
 		return normalizeEmbedding(flat);

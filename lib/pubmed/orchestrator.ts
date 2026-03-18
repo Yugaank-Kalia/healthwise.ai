@@ -9,9 +9,10 @@ import {
 } from '@/src/db/schemas/schema';
 import { inArray } from 'drizzle-orm';
 import { ingestPapers } from '@/lib/pubmed/ingest';
-import { generateResponse, type GeneratedResponse } from '@/lib/llm';
+import { generateResponse } from '@/lib/llm';
 import { searchChunks, checkCacheCoverage, type SearchResult } from './search';
 import { searchAndFetchPapers, buildNutritionQuery } from '@/lib/pubmed/pubmed';
+import { isNutritionQuery } from './guard';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -83,6 +84,25 @@ export async function answer(
 	let papersIngested = 0;
 	let chunks: SearchResult[] = [];
 
+	// ── Step 0: Topic check ──────────────────────────────────────────────
+	const onTopic = await isNutritionQuery(query);
+
+	if (!onTopic) {
+		return {
+			query,
+			answer: 'I can only answer questions about nutrition, diet, supplements, and health. Try asking about a specific food, nutrient, or health condition.',
+			citations: [],
+			cacheHit: false,
+			papersUsed: [],
+			meta: {
+				chunksRetrieved: 0,
+				papersSearched: 0,
+				papersIngested: 0,
+				responseTimeMs: Date.now() - startTime,
+			},
+		};
+	}
+
 	// ── Step 1: Check cache ──────────────────────────────────────────────────
 
 	const cache = await checkCacheCoverage(query, {
@@ -97,9 +117,8 @@ export async function answer(
 			threshold: searchThreshold,
 		});
 	} else {
-		// ── Step 2: Cache miss — fetch from PubMed ───────────────────────────
+		// ── Step 2: Cache miss - fetch from PubMed ───────────────────────────
 
-		// Clean the query: remove stop words and short noise words
 		const stopWords = new Set([
 			'is',
 			'are',
@@ -165,6 +184,87 @@ export async function answer(
 			'help',
 			'really',
 			'very',
+			'much',
+			'many',
+			'some',
+			'any',
+			'every',
+			'each',
+			'need',
+			'per',
+			'day',
+			'make',
+			'take',
+			'get',
+			'has',
+			'have',
+			'had',
+			'been',
+			'being',
+			'about',
+			'more',
+			'most',
+			'other',
+			'into',
+		]);
+
+		const medicalTerms = new Set([
+			'protein',
+			'vitamin',
+			'mineral',
+			'omega',
+			'calcium',
+			'iron',
+			'zinc',
+			'magnesium',
+			'fiber',
+			'carb',
+			'carbohydrate',
+			'fat',
+			'cholesterol',
+			'sodium',
+			'potassium',
+			'supplement',
+			'deficiency',
+			'intake',
+			'diet',
+			'nutrition',
+			'muscle',
+			'bone',
+			'heart',
+			'liver',
+			'kidney',
+			'blood',
+			'sugar',
+			'pressure',
+			'weight',
+			'sleep',
+			'anxiety',
+			'depression',
+			'inflammation',
+			'antioxidant',
+			'creatine',
+			'collagen',
+			'probiotic',
+			'prebiotic',
+			'amino',
+			'fatty',
+			'acid',
+			'seed',
+			'oil',
+			'fish',
+			'folate',
+			'biotin',
+			'melatonin',
+			'caffeine',
+			'glucose',
+			'insulin',
+			'cortisol',
+			'thyroid',
+			'estrogen',
+			'testosterone',
+			'serotonin',
+			'dopamine',
 		]);
 
 		const keywords = query
@@ -173,15 +273,23 @@ export async function answer(
 			.split(/\s+/)
 			.filter((w) => w.length > 2 && !stopWords.has(w));
 
+		const meaningful = keywords.filter(
+			(w) => medicalTerms.has(w) || w.length > 5,
+		);
+
+		const searchTerms =
+			meaningful.length > 0
+				? meaningful.slice(0, 4)
+				: keywords.slice(0, 3);
+
 		const pubmedQuery =
-			keywords.length > 0
-				? buildNutritionQuery(keywords, { humansOnly: true })
-				: query; // Fallback to raw query if everything got filtered
+			searchTerms.length > 0
+				? `${searchTerms.join(' ')} AND humans[MeSH Terms]`
+				: query;
 
 		const papers = await searchAndFetchPapers(pubmedQuery, {
 			maxResults: maxPubMedResults,
 			sort: 'relevance',
-			filters: ['free full text'],
 		});
 
 		// ── Step 3: Ingest new papers ────────────────────────────────────────
@@ -200,6 +308,22 @@ export async function answer(
 	}
 
 	// ── Step 5: Build context and paper references ───────────────────────────
+
+	if (chunks.length === 0) {
+		return {
+			query,
+			answer: "I wasn't able to find relevant research on that topic in the NIH database. This may be a very niche area or the query may need to be rephrased. Try asking with different keywords or a more specific medical term.",
+			citations: [],
+			cacheHit: false,
+			papersUsed: [],
+			meta: {
+				chunksRetrieved: 0,
+				papersSearched,
+				papersIngested,
+				responseTimeMs: Date.now() - startTime,
+			},
+		};
+	}
 
 	const context = buildContext(chunks);
 	const papersUsed = deduplicatePapers(chunks);

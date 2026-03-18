@@ -1,4 +1,4 @@
-import { CopyrightIcon } from 'lucide-react';
+import { CopyrightIcon, StethoscopeIcon } from 'lucide-react';
 
 export default async function Home() {
 	return (
@@ -34,7 +34,8 @@ export default async function Home() {
 						Learn more
 					</a>
 				</div>
-				<p className='mt-6 text-base font-semibold text-slate-400 dark:text-slate-500'>
+				<p className='mt-6 text-base font-semibold text-slate-400 dark:text-slate-500 flex items-center gap-2'>
+					<StethoscopeIcon />
 					Not a substitute for professional medical advice.
 				</p>
 			</section>

@@ -36,7 +36,7 @@ export async function searchChunks(
 	query: string,
 	options: SearchOptions = {},
 ): Promise<SearchResult[]> {
-	const { topK = 8, threshold = 0.78, maxAgeDays = 30 } = options;
+	const { topK = 8, threshold = 0.78, maxAgeDays } = options;
 
 	// 1. Embed the user's query
 	const queryEmbedding = await generateEmbedding(query);
@@ -44,13 +44,14 @@ export async function searchChunks(
 	// 2. Compute similarity as 1 - cosine distance
 	const similarity = sql<number>`1 - (${cosineDistance(nihChunks.embedding, queryEmbedding)})`;
 
-	// 3. Build the age filter
-	const ageFilter = maxAgeDays
-		? gt(
-				nihChunks.createdAt,
-				sql`now() - interval '${sql.raw(String(maxAgeDays))} days'`,
-			)
-		: undefined;
+	// 3. Build the age filter (only applied when explicitly passed)
+	const ageFilter =
+		maxAgeDays !== undefined
+			? gt(
+					nihChunks.createdAt,
+					sql`now() - interval '${sql.raw(String(maxAgeDays))} days'`,
+				)
+			: undefined;
 
 	// 4. Query with join to papers
 	const results = await db

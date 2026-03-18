@@ -3,6 +3,7 @@ import {
 	boolean,
 	index,
 	integer,
+	jsonb,
 	pgTable,
 	real,
 	text,
@@ -94,6 +95,46 @@ export const queryCitations = pgTable(
 	],
 );
 
+// ─── conversations ────────────────────────────────────────────────────────────
+
+export const conversations = pgTable(
+	'conversations',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		title: text('title').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+		updatedAt: timestamp('updated_at', { withTimezone: true })
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(table) => [index('conversations_userId_idx').on(table.userId)],
+);
+
+// ─── messages ─────────────────────────────────────────────────────────────────
+
+export const messages = pgTable(
+	'messages',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		conversationId: uuid('conversation_id')
+			.notNull()
+			.references(() => conversations.id, { onDelete: 'cascade' }),
+		role: text('role', { enum: ['user', 'assistant'] }).notNull(),
+		content: text('content').notNull(),
+		status: text('status', { enum: ['pending', 'done', 'error'] }).default('done').notNull(),
+		citations: jsonb('citations'),
+		sources: jsonb('sources'),
+		meta: jsonb('meta'),
+		order: integer('order').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+	},
+	(table) => [index('messages_conversationId_idx').on(table.conversationId)],
+);
+
 // ─── Relations ────────────────────────────────────────────────────────────────
 
 export const nihPapersRelations = relations(nihPapers, ({ many }) => ({
@@ -143,3 +184,24 @@ export type SelectSearchQuery = typeof searchQueries.$inferSelect;
 
 export type InsertQueryCitation = typeof queryCitations.$inferInsert;
 export type SelectQueryCitation = typeof queryCitations.$inferSelect;
+
+export const conversationsRelations = relations(conversations, ({ one, many }) => ({
+	user: one(user, {
+		fields: [conversations.userId],
+		references: [user.id],
+	}),
+	messages: many(messages),
+}));
+
+export const messagesRelations = relations(messages, ({ one }) => ({
+	conversation: one(conversations, {
+		fields: [messages.conversationId],
+		references: [conversations.id],
+	}),
+}));
+
+export type InsertConversation = typeof conversations.$inferInsert;
+export type SelectConversation = typeof conversations.$inferSelect;
+
+export type InsertMessage = typeof messages.$inferInsert;
+export type SelectMessage = typeof messages.$inferSelect;
