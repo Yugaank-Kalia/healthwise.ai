@@ -24,14 +24,14 @@ export const metadata: Metadata = {
 	},
 	description:
 		'Personalized nutrition guidance backed by NIH research. Make smarter food choices with science-driven insights.',
-	metadataBase: new URL('https://healthwise.ai'),
+	metadataBase: new URL('https://healthwiseai-lake.vercel.app/'),
 	openGraph: {
 		type: 'website',
 		siteName: 'healthwise.ai',
 		title: 'healthwise.ai - Your Nutrition Companion',
 		description:
 			'Personalized nutrition guidance backed by NIH research. Make smarter food choices with science-driven insights.',
-		url: 'https://healthwise.ai',
+		url: 'https://healthwiseai-lake.vercel.app/',
 		images: [
 			{
 				url: '/open-graph.png',
