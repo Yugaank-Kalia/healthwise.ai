@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 import type { Metadata } from 'next';
 import Navbar from '@/components/navbar';
 import { ThemeProvider } from '@/providers/theme-provider';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { Geist } from 'next/font/google';
 
 const geistSans = Geist({
 	subsets: ['latin'],
@@ -34,7 +34,7 @@ export const metadata: Metadata = {
 		url: 'https://healthwise.ai',
 		images: [
 			{
-				url: '/og-image.png',
+				url: '/open-graph.png',
 				width: 1200,
 				height: 630,
 				alt: 'healthwise.ai - Your Nutrition Companion',
@@ -46,7 +46,7 @@ export const metadata: Metadata = {
 		title: 'healthwise.ai - Your Nutrition Companion',
 		description:
 			'Personalized nutrition guidance backed by NIH research. Make smarter food choices with science-driven insights.',
-		images: ['/og-image.png'],
+		images: ['/open-graph.png'],
 	},
 	icons: {
 		icon: '/favicon.ico',

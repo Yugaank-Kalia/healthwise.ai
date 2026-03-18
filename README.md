@@ -125,8 +125,6 @@ HUGGING_FACE_API_KEY=
 
 # Ollama (LLM)
 OLLAMA_API_KEY=
-QUERY_MODEL=llama3.2
-EMBEDDING_MODEL=NeuML/pubmedbert-base-embeddings
 ```
 
 ### Database
