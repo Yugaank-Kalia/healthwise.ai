@@ -288,16 +288,8 @@ export function buildNutritionQuery(
 	if (keywords.length > 0) {
 		parts.push(`(${keywords.join(' AND ')})`);
 	}
-
-	// Limit to specific study types
-	for (const type of studyTypes) {
-		parts.push(`${type}[Publication Type]`);
-	}
-
-	// Limit to human studies
 	if (humansOnly) {
 		parts.push('humans[MeSH Terms]');
 	}
-
 	return parts.join(' AND ');
 }

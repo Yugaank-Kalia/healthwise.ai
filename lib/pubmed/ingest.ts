@@ -1,20 +1,21 @@
-// This is the core "just-in-time" indexing pipeline.
-// Pipeline: PubMed papers → chunk → embed → store in Supabase pgvector
+// Pipeline: PubMed papers → fetch full text (if PMC) → chunk → embed → store
 
 import { db } from '@/src/db';
-import { nihPapers, nihChunks } from '@/src/db/schemas/schema';
-import { eq } from 'drizzle-orm';
-import type { PubMedPaper } from './pubmed';
 import { chunkPaper } from './chunker';
+import { eq, isNull } from 'drizzle-orm';
+import { fetchPMCFullText } from './pmc';
+import type { PubMedPaper } from './pubmed';
+import { nihPapers, nihChunks } from '@/src/db/schemas/schema';
 import { generateEmbeddingsBatched } from './embeddings';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface IngestResult {
 	papersStored: number;
-	papersSkipped: number; // Already existed in DB
+	papersSkipped: number;
 	chunksCreated: number;
 	chunksEmbedded: number;
+	fullTextFetched: number;
 }
 
 // ─── Main ingest pipeline ────────────────────────────────────────────────────
@@ -27,6 +28,7 @@ export async function ingestPapers(
 		papersSkipped: 0,
 		chunksCreated: 0,
 		chunksEmbedded: 0,
+		fullTextFetched: 0,
 	};
 
 	for (const paper of papers) {
@@ -42,7 +44,29 @@ export async function ingestPapers(
 			continue;
 		}
 
-		// 2. Store paper metadata
+		// 2. Try to fetch full text from PMC (if available)
+		let fullText: string | null = null;
+
+		if (paper.pmcId) {
+			try {
+				const pmcResult = await fetchPMCFullText(paper.pmcId);
+				if (pmcResult) {
+					fullText = pmcResult.rawText;
+					result.fullTextFetched++;
+					console.log(
+						`📄 Full text fetched for PMID ${paper.pmid} (${pmcResult.sections.length} sections, ${fullText.length} chars)`,
+					);
+				}
+			} catch (error) {
+				console.warn(
+					`Failed to fetch PMC full text for ${paper.pmcId}:`,
+					error,
+				);
+				// Continue with abstract only
+			}
+		}
+
+		// 3. Store paper metadata
 		const [insertedPaper] = await db
 			.insert(nihPapers)
 			.values({
@@ -60,20 +84,18 @@ export async function ingestPapers(
 
 		result.papersStored++;
 
-		// 3. Chunk the paper
-		// For now, we only have abstracts. When you add PMC full-text
-		// fetching later, pass it as the second argument.
-		const chunks = chunkPaper(paper.abstract, null);
+		// 4. Chunk the paper (abstract + full text if available)
+		const chunks = chunkPaper(paper.abstract, fullText);
 
 		if (chunks.length === 0) continue;
 
-		// 4. Generate embeddings for all chunks
+		// 5. Generate embeddings for all chunks
 		const texts = chunks.map((c) => c.content);
 		let embeddings: number[][];
 
 		try {
 			embeddings = await generateEmbeddingsBatched(texts, {
-				batchSize: 8, // Conservative for free tier
+				batchSize: 8,
 				delayMs: 300,
 			});
 			result.chunksEmbedded += embeddings.length;
@@ -82,11 +104,10 @@ export async function ingestPapers(
 				`Failed to embed chunks for PMID ${paper.pmid}:`,
 				error,
 			);
-			// Store chunks without embeddings — we can retry later
 			embeddings = chunks.map(() => []);
 		}
 
-		// 5. Store chunks with embeddings in Supabase
+		// 6. Store chunks with embeddings
 		const chunkRows = chunks.map((chunk, i) => ({
 			paperId: insertedPaper.id,
 			chunkIndex: chunk.chunkIndex,
@@ -107,14 +128,10 @@ export async function ingestPapers(
 }
 
 // ─── Re-embed chunks that failed ─────────────────────────────────────────────
-// Call this to retry embedding for any chunks stored without embeddings
-
-import { isNull } from 'drizzle-orm';
 
 export async function reembedFailedChunks(
 	limit = 50,
 ): Promise<{ updated: number }> {
-	// Find chunks without embeddings
 	const unembedded = await db
 		.select({
 			id: nihChunks.id,
