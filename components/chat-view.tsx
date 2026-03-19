@@ -449,7 +449,7 @@ export default function ChatView({ conversationId }: Props) {
 
 				{/* Input */}
 				<div className='max-w-3xl w-full mx-auto px-4 pb-6 pt-3'>
-					<div className='border border-slate-200 dark:border-white/10 rounded-2xl bg-white dark:bg-white/5 flex items-center gap-2 px-4 py-3'>
+					<div className='relative border border-slate-200 dark:border-white/10 rounded-2xl bg-white dark:bg-white/5 flex items-center gap-2 px-4 pt-3 pb-8'>
 						<Textarea
 							rows={1}
 							value={input}
@@ -466,9 +466,13 @@ export default function ChatView({ conversationId }: Props) {
 						>
 							<Send className='h-4 w-4' />
 						</Button>
+						<p className='hidden sm:block absolute bottom-2.5 left-4 text-xs text-slate-400 dark:text-slate-500'>
+							Press Enter to send · Shift+Enter for new line
+						</p>
 					</div>
-					<p className='text-center text-xs text-slate-400 dark:text-slate-600 mt-2'>
-						Press Enter to send · Shift+Enter for new line
+					<p className='text-center text-[10px] sm:text-xs text-amber-600 dark:text-amber-500 mt-1'>
+						First-time queries may take longer - NIH papers are
+						fetched and indexed on demand.
 					</p>
 				</div>
 			</div>

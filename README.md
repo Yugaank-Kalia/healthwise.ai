@@ -2,6 +2,8 @@
 
 Personalized nutrition guidance backed by NIH research. Ask questions about nutrition, diet, and healthy eating - answers are grounded in PubMed literature via a JIT (just in time) RAG pipeline.
 
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
+
 ## How it works
 
 1. **Query** - user submits a nutrition question

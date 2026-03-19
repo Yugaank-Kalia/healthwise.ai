@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import UserButton from './user-button';
 import ThemeToggle from './theme-toggle';
+import MobileConversationsMenu from './mobile-conversations-menu';
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { authClient } from '@/lib/auth-client';
@@ -26,6 +27,7 @@ export default function Navbar() {
 			</Link>
 			{!isAuthPage && (
 				<div className='flex items-center gap-3'>
+					<MobileConversationsMenu />
 					<ThemeToggle />
 					{!mounted || isPending ? (
 						<Skeleton className='h-8 w-8 rounded-full' />

@@ -107,7 +107,7 @@ export default function ChatSidebar() {
 	}
 
 	return (
-		<aside className='w-64 shrink-0 flex flex-col border-r border-slate-200 dark:border-white/8 bg-slate-50 dark:bg-white/3 overflow-hidden'>
+		<aside className='w-64 shrink-0 hidden sm:flex flex-col border-r border-slate-200 dark:border-white/8 bg-slate-50 dark:bg-white/3 overflow-hidden'>
 			<div className='p-3'>
 				<Button
 					onClick={handleNewChat}
@@ -172,7 +172,7 @@ export default function ChatSidebar() {
 									'shrink-0 rounded-md p-1 transition-opacity text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-white/10 cursor-pointer',
 									renamingId === convo.id
 										? 'invisible'
-										: 'opacity-0 group-hover:opacity-100',
+										: 'sm:opacity-0 sm:group-hover:opacity-100',
 								)}
 							>
 								<MoreHorizontal className='h-3.5 w-3.5' />
