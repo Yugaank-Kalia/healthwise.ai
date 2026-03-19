@@ -11,7 +11,7 @@ import { inArray } from 'drizzle-orm';
 import { ingestPapers } from '@/lib/pubmed/ingest';
 import { generateResponse } from '@/lib/llm';
 import { searchChunks, checkCacheCoverage, type SearchResult } from './search';
-import { searchAndFetchPapers, buildNutritionQuery } from '@/lib/pubmed/pubmed';
+import { searchAndFetchPapers, PubMedPaper } from '@/lib/pubmed/pubmed';
 import { isNutritionQuery } from './guard';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -63,6 +63,156 @@ interface OrchestratorOptions {
 	maxPubMedResults?: number;
 }
 
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const STOP_WORDS = new Set([
+	'is',
+	'are',
+	'was',
+	'were',
+	'do',
+	'does',
+	'did',
+	'can',
+	'could',
+	'should',
+	'would',
+	'will',
+	'shall',
+	'may',
+	'might',
+	'must',
+	'a',
+	'an',
+	'the',
+	'and',
+	'or',
+	'but',
+	'not',
+	'no',
+	'nor',
+	'for',
+	'to',
+	'of',
+	'in',
+	'on',
+	'at',
+	'by',
+	'with',
+	'from',
+	'it',
+	'its',
+	'this',
+	'that',
+	'these',
+	'those',
+	'i',
+	'me',
+	'my',
+	'you',
+	'your',
+	'we',
+	'our',
+	'they',
+	'them',
+	'what',
+	'which',
+	'who',
+	'whom',
+	'how',
+	'why',
+	'when',
+	'where',
+	'bad',
+	'good',
+	'best',
+	'worst',
+	'help',
+	'really',
+	'very',
+	'much',
+	'many',
+	'some',
+	'any',
+	'every',
+	'each',
+	'need',
+	'per',
+	'day',
+	'make',
+	'take',
+	'get',
+	'has',
+	'have',
+	'had',
+	'been',
+	'being',
+	'about',
+	'more',
+	'most',
+	'other',
+	'into',
+]);
+
+const MEDICAL_TERMS = new Set([
+	'protein',
+	'vitamin',
+	'mineral',
+	'omega',
+	'calcium',
+	'iron',
+	'zinc',
+	'magnesium',
+	'fiber',
+	'carb',
+	'carbohydrate',
+	'fat',
+	'cholesterol',
+	'sodium',
+	'potassium',
+	'supplement',
+	'deficiency',
+	'intake',
+	'diet',
+	'nutrition',
+	'muscle',
+	'bone',
+	'heart',
+	'liver',
+	'kidney',
+	'blood',
+	'sugar',
+	'pressure',
+	'weight',
+	'sleep',
+	'anxiety',
+	'depression',
+	'inflammation',
+	'antioxidant',
+	'creatine',
+	'collagen',
+	'probiotic',
+	'prebiotic',
+	'amino',
+	'fatty',
+	'acid',
+	'seed',
+	'oil',
+	'fish',
+	'folate',
+	'biotin',
+	'melatonin',
+	'caffeine',
+	'glucose',
+	'insulin',
+	'cortisol',
+	'thyroid',
+	'estrogen',
+	'testosterone',
+	'serotonin',
+	'dopamine',
+]);
+
 // ─── Main entry point ────────────────────────────────────────────────────────
 
 export async function answer(
@@ -79,12 +229,11 @@ export async function answer(
 	} = options;
 
 	const startTime = Date.now();
-	let cacheHit = false;
 	let papersSearched = 0;
 	let papersIngested = 0;
-	let chunks: SearchResult[] = [];
 
 	// ── Step 0: Topic check ──────────────────────────────────────────────
+
 	const onTopic = await isNutritionQuery(query);
 
 	if (!onTopic) {
@@ -103,211 +252,87 @@ export async function answer(
 		};
 	}
 
-	// ── Step 1: Check cache ──────────────────────────────────────────────────
+	// ── Step 1: Split multi-question queries ─────────────────────────────
 
-	const cache = await checkCacheCoverage(query, {
-		minChunks: minCacheChunks,
-		threshold: cacheThreshold,
-	});
+	const subQueries = query
+		.split(/\d+\.\s+|\n\n|;/)
+		.map((q) => q.replace(/^\d+[\.\)]\s*/, '').trim())
+		.filter((q) => q.length > 10);
 
-	if (cache.sufficient) {
-		cacheHit = true;
-		chunks = await searchChunks(query, {
-			topK,
-			threshold: searchThreshold,
-		});
-	} else {
-		// ── Step 2: Cache miss - fetch from PubMed ───────────────────────────
+	const queries = subQueries.length > 1 ? subQueries : [query];
 
-		const stopWords = new Set([
-			'is',
-			'are',
-			'was',
-			'were',
-			'do',
-			'does',
-			'did',
-			'can',
-			'could',
-			'should',
-			'would',
-			'will',
-			'shall',
-			'may',
-			'might',
-			'must',
-			'a',
-			'an',
-			'the',
-			'and',
-			'or',
-			'but',
-			'not',
-			'no',
-			'nor',
-			'for',
-			'to',
-			'of',
-			'in',
-			'on',
-			'at',
-			'by',
-			'with',
-			'from',
-			'it',
-			'its',
-			'this',
-			'that',
-			'these',
-			'those',
-			'i',
-			'me',
-			'my',
-			'you',
-			'your',
-			'we',
-			'our',
-			'they',
-			'them',
-			'what',
-			'which',
-			'who',
-			'whom',
-			'how',
-			'why',
-			'when',
-			'where',
-			'bad',
-			'good',
-			'best',
-			'worst',
-			'help',
-			'really',
-			'very',
-			'much',
-			'many',
-			'some',
-			'any',
-			'every',
-			'each',
-			'need',
-			'per',
-			'day',
-			'make',
-			'take',
-			'get',
-			'has',
-			'have',
-			'had',
-			'been',
-			'being',
-			'about',
-			'more',
-			'most',
-			'other',
-			'into',
-		]);
+	// ── Step 2: Check cache per sub-query ────────────────────────────────
 
-		const medicalTerms = new Set([
-			'protein',
-			'vitamin',
-			'mineral',
-			'omega',
-			'calcium',
-			'iron',
-			'zinc',
-			'magnesium',
-			'fiber',
-			'carb',
-			'carbohydrate',
-			'fat',
-			'cholesterol',
-			'sodium',
-			'potassium',
-			'supplement',
-			'deficiency',
-			'intake',
-			'diet',
-			'nutrition',
-			'muscle',
-			'bone',
-			'heart',
-			'liver',
-			'kidney',
-			'blood',
-			'sugar',
-			'pressure',
-			'weight',
-			'sleep',
-			'anxiety',
-			'depression',
-			'inflammation',
-			'antioxidant',
-			'creatine',
-			'collagen',
-			'probiotic',
-			'prebiotic',
-			'amino',
-			'fatty',
-			'acid',
-			'seed',
-			'oil',
-			'fish',
-			'folate',
-			'biotin',
-			'melatonin',
-			'caffeine',
-			'glucose',
-			'insulin',
-			'cortisol',
-			'thyroid',
-			'estrogen',
-			'testosterone',
-			'serotonin',
-			'dopamine',
-		]);
+	let cachedChunks: SearchResult[] = [];
+	const uncachedQueries: string[] = [];
 
-		const keywords = query
-			.toLowerCase()
-			.replace(/[?!.,;:'"]/g, '')
-			.split(/\s+/)
-			.filter((w) => w.length > 2 && !stopWords.has(w));
-
-		const meaningful = keywords.filter(
-			(w) => medicalTerms.has(w) || w.length > 5,
-		);
-
-		const searchTerms =
-			meaningful.length > 0
-				? meaningful.slice(0, 4)
-				: keywords.slice(0, 3);
-
-		const pubmedQuery =
-			searchTerms.length > 0
-				? `${searchTerms.join(' ')} AND humans[MeSH Terms]`
-				: query;
-
-		const papers = await searchAndFetchPapers(pubmedQuery, {
-			maxResults: maxPubMedResults,
-			sort: 'relevance',
+	for (const q of queries) {
+		const cache = await checkCacheCoverage(q, {
+			minChunks: minCacheChunks,
+			threshold: cacheThreshold,
 		});
 
-		// ── Step 3: Ingest new papers ────────────────────────────────────────
+		if (cache.sufficient) {
+			const results = await searchChunks(q, {
+				topK,
+				threshold: searchThreshold,
+			});
+			cachedChunks.push(...results);
+		} else {
+			uncachedQueries.push(q);
+		}
+	}
+	const cacheHit = uncachedQueries.length === 0;
 
-		if (papers.length > 0) {
-			const ingestResult = await ingestPapers(papers);
+	// ── Step 3: Fetch from PubMed for uncached queries only ──────────────
+
+	if (uncachedQueries.length > 0) {
+		let allPapers: PubMedPaper[] = [];
+
+		for (const q of uncachedQueries) {
+			const pubmedQuery = buildPubMedQuery(q);
+			const papers = await searchAndFetchPapers(pubmedQuery, {
+				maxResults: Math.ceil(
+					maxPubMedResults / uncachedQueries.length,
+				),
+				sort: 'relevance',
+			});
+
+			allPapers.push(...papers);
+		}
+
+		papersSearched = allPapers.length;
+
+		// ── Step 4: Ingest new papers ────────────────────────────────────
+
+		if (allPapers.length > 0) {
+			const ingestResult = await ingestPapers(allPapers);
 			papersIngested = ingestResult.papersStored;
 		}
 
-		// ── Step 4: Search again with fresh data ─────────────────────────────
+		// ── Step 5: Search again for uncached queries with fresh data ────
 
-		chunks = await searchChunks(query, {
-			topK,
-			threshold: searchThreshold,
-		});
+		for (const q of uncachedQueries) {
+			const results = await searchChunks(q, {
+				topK,
+				threshold: searchThreshold,
+			});
+			cachedChunks.push(...results);
+		}
 	}
 
-	// ── Step 5: Build context and paper references ───────────────────────────
+	// ── Step 6: Deduplicate chunks ───────────────────────────────────────
+
+	const seenChunkIds = new Set<string>();
+	const chunks = cachedChunks
+		.filter((c) => {
+			if (seenChunkIds.has(c.chunkId)) return false;
+			seenChunkIds.add(c.chunkId);
+			return true;
+		})
+		.slice(0, topK);
+
+	// ── Step 7: Build context and paper references ───────────────────────
 
 	if (chunks.length === 0) {
 		return {
@@ -328,12 +353,12 @@ export async function answer(
 	const context = buildContext(chunks);
 	const papersUsed = deduplicatePapers(chunks);
 
-	// ── Step 6: Generate LLM response ────────────────────────────────────────
+	// ── Step 8: Generate LLM response ────────────────────────────────────
 
 	const llmResponse = await generateResponse(query, context, papersUsed);
 	const responseTimeMs = Date.now() - startTime;
 
-	// ── Step 7: Log analytics ────────────────────────────────────────────────
+	// ── Step 9: Log analytics ────────────────────────────────────────────
 
 	await logQuery({
 		userId,
@@ -359,6 +384,27 @@ export async function answer(
 			responseTimeMs,
 		},
 	};
+}
+
+// ─── Build PubMed query from natural language ────────────────────────────────
+
+function buildPubMedQuery(q: string): string {
+	const keywords = q
+		.toLowerCase()
+		.replace(/[?!.,;:'"]/g, '')
+		.split(/\s+/)
+		.filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+
+	const meaningful = keywords.filter(
+		(w) => MEDICAL_TERMS.has(w) || w.length > 5,
+	);
+
+	const searchTerms =
+		meaningful.length > 0 ? meaningful.slice(0, 4) : keywords.slice(0, 3);
+
+	return searchTerms.length > 0
+		? `${searchTerms.join(' ')} AND humans[MeSH Terms]`
+		: q;
 }
 
 // ─── Build context from chunks ───────────────────────────────────────────────

@@ -1,7 +1,15 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Send, ExternalLink, X, ArrowDown, Loader2 } from 'lucide-react';
+import {
+	ArrowUp,
+	ExternalLink,
+	X,
+	ArrowDown,
+	Loader2,
+	Copy,
+	Check,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
@@ -135,10 +143,12 @@ export default function ChatView({ conversationId }: Props) {
 	const [drawerSources, setDrawerSources] = useState<Source[] | null>(null);
 	const [drawerContext, setDrawerContext] = useState('');
 	const [showScrollBtn, setShowScrollBtn] = useState(false);
+	const [copiedId, setCopiedId] = useState<string | null>(null);
 	const bottomRef = useRef<HTMLDivElement>(null);
 	const pollTimers = useRef<Map<string, ReturnType<typeof setInterval>>>(
 		new Map(),
 	);
+	const initialScrollDone = useRef(false);
 
 	function startPolling(messageId: string, convoId: string) {
 		if (pollTimers.current.has(messageId)) return;
@@ -165,7 +175,7 @@ export default function ChatView({ conversationId }: Props) {
 				);
 				setLoading(false);
 			}
-		}, 5000);
+		}, 2000);
 		pollTimers.current.set(messageId, timer);
 	}
 
@@ -216,6 +226,14 @@ export default function ChatView({ conversationId }: Props) {
 		);
 		observer.observe(el);
 		return () => observer.disconnect();
+	}, [messages]);
+
+	useEffect(() => {
+		if (!messages.length) return;
+		bottomRef.current?.scrollIntoView({
+			behavior: initialScrollDone.current ? 'smooth' : 'instant',
+		});
+		initialScrollDone.current = true;
 	}, [messages]);
 
 	function scrollToBottom() {
@@ -402,38 +420,62 @@ export default function ChatView({ conversationId }: Props) {
 							{messages.map((msg) => (
 								<div
 									key={msg.id}
-									className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+									className={`flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
 								>
-									<div
-										className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-											msg.role === 'user'
-												? 'bg-blue-900 text-white rounded-br-sm'
-												: 'bg-slate-100 dark:bg-white/8 text-slate-800 dark:text-slate-200 rounded-bl-sm'
-										}`}
-									>
-										{/* Content or loading dots */}
-										{msg.role === 'assistant' &&
-										msg.status === 'pending' ? (
-											<span className='flex gap-1 items-center h-4'>
-												<span className='w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce [animation-delay:0ms]' />
-												<span className='w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce [animation-delay:150ms]' />
-												<span className='w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce [animation-delay:300ms]' />
-											</span>
-										) : (
-											<div className='space-y-0'>
-												{renderContent(msg.content)}
-											</div>
-										)}
-										{msg.role === 'assistant' &&
-											msg.sources &&
-											msg.sources.length > 0 && (
-												<SourceBadge
-													sources={msg.sources}
-													onClick={() =>
-														openSources(msg)
-													}
-												/>
+									<div className='group relative max-w-[80%]'>
+										<div
+											className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+												msg.role === 'user'
+													? 'bg-blue-900 text-white rounded-br-sm'
+													: 'bg-slate-100 dark:bg-white/8 text-slate-800 dark:text-slate-200 rounded-bl-sm'
+											}`}
+										>
+											{/* Content or loading dots */}
+											{msg.role === 'assistant' &&
+											msg.status === 'pending' ? (
+												<span className='flex gap-1 items-center h-4'>
+													<span className='w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce [animation-delay:0ms]' />
+													<span className='w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce [animation-delay:150ms]' />
+													<span className='w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce [animation-delay:300ms]' />
+												</span>
+											) : (
+												<div className='space-y-0'>
+													{renderContent(msg.content)}
+												</div>
 											)}
+											{msg.role === 'assistant' &&
+												msg.sources &&
+												msg.sources.length > 0 && (
+													<SourceBadge
+														sources={msg.sources}
+														onClick={() =>
+															openSources(msg)
+														}
+													/>
+												)}
+										</div>
+										{msg.status !== 'pending' && (
+											<button
+												onClick={() => {
+													navigator.clipboard.writeText(
+														msg.content,
+													);
+													setCopiedId(msg.id);
+													setTimeout(
+														() => setCopiedId(null),
+														2000,
+													);
+												}}
+												className={`absolute -bottom-5 opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ${msg.role === 'user' ? 'right-1' : 'left-1'}`}
+												title='Copy'
+											>
+												{copiedId === msg.id ? (
+													<Check className='h-3.5 w-3.5 text-green-500' />
+												) : (
+													<Copy className='h-3.5 w-3.5' />
+												)}
+											</button>
+										)}
 									</div>
 								</div>
 							))}
@@ -469,10 +511,18 @@ export default function ChatView({ conversationId }: Props) {
 						<Button
 							size='icon'
 							onClick={handleSend}
-							disabled={!input.trim() || loading}
+							disabled={
+								!input.trim() ||
+								loading ||
+								messages.some(
+									(m) =>
+										m.role === 'assistant' &&
+										m.status === 'pending',
+								)
+							}
 							className='shrink-0 rounded-full bg-blue-900 hover:bg-blue-800 text-white'
 						>
-							<Send className='h-4 w-4' />
+							<ArrowUp className='h-4 w-4' />
 						</Button>
 						<p className='hidden sm:block absolute bottom-2.5 left-4 text-xs text-slate-400 dark:text-slate-500'>
 							Press Enter to send · Shift+Enter for new line

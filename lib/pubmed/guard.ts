@@ -13,9 +13,9 @@ export async function isNutritionQuery(query: string): Promise<boolean> {
 			messages: [
 				{
 					role: 'user',
-					content: `Classify if this question is about nutrition, food, diet, supplements, health conditions related to diet, or exercise/fitness. Answer ONLY "yes" or "no".
-
-Question: "${query}"`,
+					content: `Classify if this question is related to nutrition, food, diet, supplements, health, wellness, medical conditions, the relationship between diet and any health/medical topic, or any medical/scientific claim that could be investigated through research. Answer ONLY "yes" or "no".
+					
+					Question: "${query}"`,
 				},
 			],
 			stream: false,

@@ -38,7 +38,8 @@ async function processLLM(
 					eq(messages.conversationId, conversationId),
 				),
 			);
-	} catch {
+	} catch (error) {
+		console.error('processLLM error:', error);
 		await db
 			.update(messages)
 			.set({
