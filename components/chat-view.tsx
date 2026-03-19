@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Send, ExternalLink, X, ArrowDown } from 'lucide-react';
+import { Send, ExternalLink, X, ArrowDown, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
@@ -131,6 +131,7 @@ export default function ChatView({ conversationId }: Props) {
 	const [messages, setMessages] = useState<ChatMessage[]>([]);
 	const [input, setInput] = useState('');
 	const [loading, setLoading] = useState(false);
+	const [fetchingMessages, setFetchingMessages] = useState(!!conversationId);
 	const [drawerSources, setDrawerSources] = useState<Source[] | null>(null);
 	const [drawerContext, setDrawerContext] = useState('');
 	const [showScrollBtn, setShowScrollBtn] = useState(false);
@@ -164,7 +165,7 @@ export default function ChatView({ conversationId }: Props) {
 				);
 				setLoading(false);
 			}
-		}, 2000);
+		}, 5000);
 		pollTimers.current.set(messageId, timer);
 	}
 
@@ -177,8 +178,10 @@ export default function ChatView({ conversationId }: Props) {
 		if (!conversationId) {
 			setMessages([]);
 			setLocalConvoId(undefined);
+			setFetchingMessages(false);
 			return;
 		}
+		setFetchingMessages(true);
 		setLocalConvoId(conversationId);
 		fetch(`/api/conversations/${conversationId}/messages`)
 			.then((r) => r.json())
@@ -199,7 +202,8 @@ export default function ChatView({ conversationId }: Props) {
 				rows.filter((m) => m.status === 'pending').forEach((m) =>
 					startPolling(m.id as string, conversationId),
 				);
-			});
+			})
+			.finally(() => setFetchingMessages(false));
 	}, [conversationId]);
 
 	// Show scroll-to-bottom button when bottomRef leaves viewport
@@ -378,7 +382,11 @@ export default function ChatView({ conversationId }: Props) {
 	return (
 		<>
 			<div className='relative flex-1 flex flex-col min-h-0 bg-white dark:bg-[oklch(0.14_0.03_258)]'>
-				{isEmpty ? (
+				{fetchingMessages ? (
+					<div className='flex-1 flex items-center justify-center'>
+						<Loader2 className='h-6 w-6 animate-spin text-blue-600' />
+					</div>
+				) : isEmpty ? (
 					<div className='flex-1 flex flex-col items-center justify-center gap-3 px-4 text-center'>
 						<h2 className='text-2xl font-semibold text-slate-900 dark:text-white'>
 							What would you like to know?
