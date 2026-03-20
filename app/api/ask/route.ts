@@ -1,59 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/src/db';
 import { messages } from '@/src/db/schemas/schema';
-import { answer } from '@/lib/pubmed/orchestrator';
+import {
+	answerStream,
+	type OrchestratorStreamResult,
+} from '@/lib/pubmed/orchestrator';
+import { extractCitations } from '@/lib/llm';
 import { auth } from '@/lib/auth';
 import { and, eq } from 'drizzle-orm';
-
-async function processLLM(
-	query: string,
-	conversationId: string,
-	messageId: string,
-) {
-	try {
-		const result = await answer(query, {});
-
-		const sources = result.papersUsed.map((p) => ({
-			pmid: p.pmid,
-			title: p.title,
-			authors: p.authors,
-			year: p.year,
-			doi: p.doi ? `https://doi.org/${p.doi}` : null,
-			type: p.publicationType,
-			pubmedUrl: `https://pubmed.ncbi.nlm.nih.gov/${p.pmid}/`,
-		}));
-
-		await db
-			.update(messages)
-			.set({
-				content: result.answer,
-				sources: sources.length > 0 ? sources : null,
-				citations: result.citations as unknown[],
-				meta: { cacheHit: result.cacheHit, ...result.meta },
-				status: 'done',
-			})
-			.where(
-				and(
-					eq(messages.id, messageId),
-					eq(messages.conversationId, conversationId),
-				),
-			);
-	} catch (error) {
-		console.error('processLLM error:', error);
-		await db
-			.update(messages)
-			.set({
-				content: 'Something went wrong. Please try again.',
-				status: 'error',
-			})
-			.where(
-				and(
-					eq(messages.id, messageId),
-					eq(messages.conversationId, conversationId),
-				),
-			);
-	}
-}
 
 export async function POST(req: NextRequest) {
 	const session = await auth.api.getSession({ headers: req.headers });
@@ -68,8 +22,145 @@ export async function POST(req: NextRequest) {
 		);
 	}
 
-	// Fire and forget - don't await, server completes regardless of client connection
-	processLLM(query, conversationId, messageId);
+	const encoder = new TextEncoder();
 
-	return NextResponse.json({ status: 'accepted' }, { status: 202 });
+	const sseStream = new ReadableStream({
+		async start(controller) {
+			const send = (event: string, data: unknown) => {
+				try {
+					controller.enqueue(
+						encoder.encode(
+							`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
+						),
+					);
+				} catch {
+					// Client disconnected - keep going so DB gets finalized
+				}
+			};
+
+			let result: OrchestratorStreamResult;
+			try {
+				result = await answerStream(query, {
+					userId: session.user.id,
+					onProgress: (stage) => send('progress', { stage }),
+				});
+			} catch (err) {
+				send('error', { error: String(err) });
+				await db
+					.update(messages)
+					.set({
+						content: 'Something went wrong. Please try again.',
+						status: 'error',
+					})
+					.where(
+						and(
+							eq(messages.id, messageId),
+							eq(messages.conversationId, conversationId),
+						),
+					);
+				controller.close();
+				return;
+			}
+
+			const sources = result.papersUsed.map((p) => ({
+				pmid: p.pmid,
+				title: p.title,
+				authors: p.authors,
+				year: p.year,
+				doi: p.doi ? `https://doi.org/${p.doi}` : null,
+				type: p.publicationType,
+				pubmedUrl: `https://pubmed.ncbi.nlm.nih.gov/${p.pmid}/`,
+			}));
+
+			// Meta event - sources and pipeline info up front
+			send('meta', {
+				sources,
+				cacheHit: result.cacheHit,
+				meta: {
+					chunksRetrieved: result.meta.chunksRetrieved,
+					papersSearched: result.meta.papersSearched,
+					papersIngested: result.meta.papersIngested,
+				},
+			});
+
+			const reader = result.stream.getReader();
+			let fullAnswer = '';
+			let firstToken = true;
+
+			try {
+				while (true) {
+					const { done, value } = await reader.read();
+					if (done) break;
+					if (firstToken) {
+						firstToken = false;
+						// Mark as streaming in DB so a reload shows partial content
+						db.update(messages)
+							.set({ status: 'streaming' })
+							.where(
+								and(
+									eq(messages.id, messageId),
+									eq(messages.conversationId, conversationId),
+								),
+							)
+							.catch(() => {});
+					}
+					fullAnswer += value;
+					send('token', { content: value });
+				}
+			} catch (err) {
+				send('error', { error: String(err) });
+				await db
+					.update(messages)
+					.set({
+						content: 'Something went wrong. Please try again.',
+						status: 'error',
+					})
+					.where(
+						and(
+							eq(messages.id, messageId),
+							eq(messages.conversationId, conversationId),
+						),
+					);
+				controller.close();
+				return;
+			} finally {
+				reader.releaseLock();
+			}
+
+			const citations = extractCitations(fullAnswer, result.papersUsed);
+			send('done', { citations });
+
+			const responseTimeMs = Date.now() - result.meta.startTime;
+
+			// Persist to DB and log analytics
+			await Promise.all([
+				db
+					.update(messages)
+					.set({
+						content: fullAnswer,
+						sources: sources.length > 0 ? sources : null,
+						citations: citations as unknown[],
+						meta: { cacheHit: result.cacheHit, ...result.meta },
+						status: 'done',
+					})
+					.where(
+						and(
+							eq(messages.id, messageId),
+							eq(messages.conversationId, conversationId),
+						),
+					),
+				result.logAnalytics(responseTimeMs),
+			]);
+
+			controller.close();
+		},
+	});
+
+	return new Response(sseStream, {
+		headers: {
+			'Content-Type': 'text/event-stream',
+			'Cache-Control': 'no-cache',
+			Connection: 'keep-alive',
+		},
+	});
 }

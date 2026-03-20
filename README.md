@@ -8,9 +8,9 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 1. **Query** - user submits a nutrition question
 2. **Cache check** - vector similarity search over previously ingested PubMed chunks
-3. **Cache miss** - relevant papers are fetched from PubMed, chunked, embedded, and stored
-4. **Generation** - an LLM synthesizes an answer from the retrieved chunks with inline citations
-5. **Persistence** - conversations and messages are stored per-user; pending responses survive page reloads via polling
+3. **Cache miss** - relevant papers are fetched from PubMed, chunked, embedded, and stored; the UI shows "Indexing papers…" during this step
+4. **Generation** - an LLM synthesizes an answer from the retrieved chunks, streamed token-by-token via SSE with inline `[PMID]` citations
+5. **Persistence** - conversations and messages are stored per-user; in-flight responses survive page reloads - the server continues streaming regardless of client connection and the client resumes polling on reload
 
 ## Tech stack
 
@@ -35,7 +35,7 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 │   │   ├── sign-in/page.tsx
 │   │   └── sign-up/page.tsx
 │   ├── api/
-│   │   ├── ask/route.ts                          # LLM endpoint (fire-and-forget, returns 202)
+│   │   ├── ask/route.ts                          # SSE streaming endpoint - progress, meta, token, done events
 │   │   ├── auth/[...all]/route.ts                # better-auth catch-all handler
 │   │   ├── conversations/
 │   │   │   ├── route.ts                          # GET list, POST create
@@ -57,7 +57,7 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 ├── components/
 │   ├── ui/                                       # shadcn/ui primitives
 │   ├── chat-sidebar.tsx                          # Conversation list with rename/delete
-│   ├── chat-view.tsx                             # Chat interface with polling, sources drawer
+│   ├── chat-view.tsx                             # Chat interface - SSE streaming, polling fallback, sources drawer
 │   ├── google-button.tsx
 │   ├── navbar.tsx
 │   ├── theme-toggle.tsx

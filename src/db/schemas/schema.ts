@@ -105,7 +105,9 @@ export const conversations = pgTable(
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		title: text('title').notNull(),
-		createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true })
+			.defaultNow()
+			.notNull(),
 		updatedAt: timestamp('updated_at', { withTimezone: true })
 			.defaultNow()
 			.$onUpdate(() => new Date())
@@ -125,12 +127,18 @@ export const messages = pgTable(
 			.references(() => conversations.id, { onDelete: 'cascade' }),
 		role: text('role', { enum: ['user', 'assistant'] }).notNull(),
 		content: text('content').notNull(),
-		status: text('status', { enum: ['pending', 'done', 'error'] }).default('done').notNull(),
+		status: text('status', {
+			enum: ['pending', 'indexing', 'streaming', 'done', 'error'],
+		})
+			.default('done')
+			.notNull(),
 		citations: jsonb('citations'),
 		sources: jsonb('sources'),
 		meta: jsonb('meta'),
 		order: integer('order').notNull(),
-		createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true })
+			.defaultNow()
+			.notNull(),
 	},
 	(table) => [index('messages_conversationId_idx').on(table.conversationId)],
 );
@@ -185,13 +193,16 @@ export type SelectSearchQuery = typeof searchQueries.$inferSelect;
 export type InsertQueryCitation = typeof queryCitations.$inferInsert;
 export type SelectQueryCitation = typeof queryCitations.$inferSelect;
 
-export const conversationsRelations = relations(conversations, ({ one, many }) => ({
-	user: one(user, {
-		fields: [conversations.userId],
-		references: [user.id],
+export const conversationsRelations = relations(
+	conversations,
+	({ one, many }) => ({
+		user: one(user, {
+			fields: [conversations.userId],
+			references: [user.id],
+		}),
+		messages: many(messages),
 	}),
-	messages: many(messages),
-}));
+);
 
 export const messagesRelations = relations(messages, ({ one }) => ({
 	conversation: one(conversations, {

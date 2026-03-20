@@ -9,7 +9,7 @@ import {
 } from '@/src/db/schemas/schema';
 import { inArray } from 'drizzle-orm';
 import { ingestPapers } from '@/lib/pubmed/ingest';
-import { generateResponse } from '@/lib/llm';
+import { generateResponse, generateResponseStream } from '@/lib/llm';
 import { searchChunks, checkCacheCoverage, type SearchResult } from './search';
 import { searchAndFetchPapers, PubMedPaper } from '@/lib/pubmed/pubmed';
 import { isNutritionQuery } from './guard';
@@ -54,13 +54,14 @@ export interface PaperReference {
 	relevanceScore: number;
 }
 
-interface OrchestratorOptions {
+export interface OrchestratorOptions {
 	userId?: string;
 	cacheThreshold?: number;
 	minCacheChunks?: number;
 	searchThreshold?: number;
 	topK?: number;
 	maxPubMedResults?: number;
+	onProgress?: (stage: 'fetching' | 'indexing') => void;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -213,14 +214,24 @@ const MEDICAL_TERMS = new Set([
 	'dopamine',
 ]);
 
-// ─── Main entry point ────────────────────────────────────────────────────────
+// ─── Shared context preparation (steps 0-7) ──────────────────────────────────
 
-export async function answer(
+interface PreparedContext {
+	chunks: SearchResult[];
+	context: ContextChunk[];
+	papersUsed: PaperReference[];
+	cacheHit: boolean;
+	papersSearched: number;
+	papersIngested: number;
+	startTime: number;
+	earlyReturn?: OrchestratorResponse;
+}
+
+async function prepareContext(
 	query: string,
-	options: OrchestratorOptions = {},
-): Promise<OrchestratorResponse> {
+	options: OrchestratorOptions,
+): Promise<PreparedContext> {
 	const {
-		userId,
 		cacheThreshold = 0.55,
 		minCacheChunks = 2,
 		searchThreshold = 0.45,
@@ -238,16 +249,25 @@ export async function answer(
 
 	if (!onTopic) {
 		return {
-			query,
-			answer: 'I can only answer questions about nutrition, diet, supplements, and health. Try asking about a specific food, nutrient, or health condition.',
-			citations: [],
-			cacheHit: false,
+			chunks: [],
+			context: [],
 			papersUsed: [],
-			meta: {
-				chunksRetrieved: 0,
-				papersSearched: 0,
-				papersIngested: 0,
-				responseTimeMs: Date.now() - startTime,
+			cacheHit: false,
+			papersSearched: 0,
+			papersIngested: 0,
+			startTime,
+			earlyReturn: {
+				query,
+				answer: 'I can only answer questions about nutrition, diet, supplements, and health. Try asking about a specific food, nutrient, or health condition.',
+				citations: [],
+				cacheHit: false,
+				papersUsed: [],
+				meta: {
+					chunksRetrieved: 0,
+					papersSearched: 0,
+					papersIngested: 0,
+					responseTimeMs: Date.now() - startTime,
+				},
 			},
 		};
 	}
@@ -287,17 +307,19 @@ export async function answer(
 	// ── Step 3: Fetch from PubMed for uncached queries only ──────────────
 
 	if (uncachedQueries.length > 0) {
-		let allPapers: PubMedPaper[] = [];
+		options.onProgress?.('fetching');
+
+		const allPapers: PubMedPaper[] = [];
 
 		for (const q of uncachedQueries) {
 			const pubmedQuery = buildPubMedQuery(q);
+			console.log(pubmedQuery);
 			const papers = await searchAndFetchPapers(pubmedQuery, {
 				maxResults: Math.ceil(
 					maxPubMedResults / uncachedQueries.length,
 				),
 				sort: 'relevance',
 			});
-
 			allPapers.push(...papers);
 		}
 
@@ -306,6 +328,7 @@ export async function answer(
 		// ── Step 4: Ingest new papers ────────────────────────────────────
 
 		if (allPapers.length > 0) {
+			options.onProgress?.('indexing');
 			const ingestResult = await ingestPapers(allPapers);
 			papersIngested = ingestResult.papersStored;
 		}
@@ -336,40 +359,71 @@ export async function answer(
 
 	if (chunks.length === 0) {
 		return {
-			query,
-			answer: "I wasn't able to find relevant research on that topic in the NIH database. This may be a very niche area or the query may need to be rephrased. Try asking with different keywords or a more specific medical term.",
-			citations: [],
-			cacheHit: false,
+			chunks: [],
+			context: [],
 			papersUsed: [],
-			meta: {
-				chunksRetrieved: 0,
-				papersSearched,
-				papersIngested,
-				responseTimeMs: Date.now() - startTime,
+			cacheHit: false,
+			papersSearched,
+			papersIngested,
+			startTime,
+			earlyReturn: {
+				query,
+				answer: "I wasn't able to find relevant research on that topic in the NIH database. This may be a very niche area or the query may need to be rephrased. Try asking with different keywords or a more specific medical term.",
+				citations: [],
+				cacheHit: false,
+				papersUsed: [],
+				meta: {
+					chunksRetrieved: 0,
+					papersSearched,
+					papersIngested,
+					responseTimeMs: Date.now() - startTime,
+				},
 			},
 		};
 	}
 
-	const context = buildContext(chunks);
-	const papersUsed = deduplicatePapers(chunks);
+	return {
+		chunks,
+		context: buildContext(chunks),
+		papersUsed: deduplicatePapers(chunks),
+		cacheHit,
+		papersSearched,
+		papersIngested,
+		startTime,
+	};
+}
 
-	// ── Step 8: Generate LLM response ────────────────────────────────────
+// ─── Non-streaming entry point ────────────────────────────────────────────────
+
+export async function answer(
+	query: string,
+	options: OrchestratorOptions = {},
+): Promise<OrchestratorResponse> {
+	const prepared = await prepareContext(query, options);
+
+	if (prepared.earlyReturn) return prepared.earlyReturn;
+
+	const {
+		chunks,
+		context,
+		papersUsed,
+		cacheHit,
+		papersSearched,
+		papersIngested,
+		startTime,
+	} = prepared;
 
 	const llmResponse = await generateResponse(query, context, papersUsed);
 	const responseTimeMs = Date.now() - startTime;
 
-	// ── Step 9: Log analytics ────────────────────────────────────────────
-
 	await logQuery({
-		userId,
+		userId: options.userId,
 		query,
 		cacheHit,
 		chunksUsed: chunks.length,
 		responseTimeMs,
 		papersUsed,
-	}).catch((err) => {
-		console.error('Failed to log query analytics:', err);
-	});
+	}).catch((err) => console.error('Failed to log query analytics:', err));
 
 	return {
 		query,
@@ -382,6 +436,85 @@ export async function answer(
 			papersSearched,
 			papersIngested,
 			responseTimeMs,
+		},
+	};
+}
+
+// ─── Streaming entry point ────────────────────────────────────────────────────
+
+export interface OrchestratorStreamResult {
+	stream: ReadableStream<string>;
+	papersUsed: PaperReference[];
+	cacheHit: boolean;
+	meta: {
+		chunksRetrieved: number;
+		papersSearched: number;
+		papersIngested: number;
+		startTime: number;
+	};
+	logAnalytics: (responseTimeMs: number) => Promise<void>;
+}
+
+export async function answerStream(
+	query: string,
+	options: OrchestratorOptions = {},
+): Promise<OrchestratorStreamResult> {
+	const prepared = await prepareContext(query, options);
+
+	if (prepared.earlyReturn) {
+		const msg = prepared.earlyReturn.answer;
+		return {
+			stream: new ReadableStream<string>({
+				start(controller) {
+					controller.enqueue(msg);
+					controller.close();
+				},
+			}),
+			papersUsed: [],
+			cacheHit: false,
+			meta: {
+				chunksRetrieved: 0,
+				papersSearched: prepared.papersSearched,
+				papersIngested: prepared.papersIngested,
+				startTime: prepared.startTime,
+			},
+			logAnalytics: async () => {},
+		};
+	}
+
+	const {
+		chunks,
+		context,
+		papersUsed,
+		cacheHit,
+		papersSearched,
+		papersIngested,
+		startTime,
+	} = prepared;
+
+	const { stream } = await generateResponseStream(query, context, papersUsed);
+
+	return {
+		stream,
+		papersUsed,
+		cacheHit,
+		meta: {
+			chunksRetrieved: chunks.length,
+			papersSearched,
+			papersIngested,
+			startTime,
+		},
+		logAnalytics: async (responseTimeMs: number) => {
+			await logQuery({
+				userId: options.userId,
+				query,
+				cacheHit,
+				chunksUsed: chunks.length,
+				responseTimeMs,
+				papersUsed,
+			}).catch((err) =>
+				console.error('Failed to log query analytics:', err),
+			);
 		},
 	};
 }

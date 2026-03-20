@@ -20,6 +20,7 @@ import {
 	DrawerTitle,
 	DrawerClose,
 } from '@/components/ui/drawer';
+import Link from 'next/link';
 
 type Source = {
 	pmid: string;
@@ -29,7 +30,7 @@ type Source = {
 	pubmedUrl: string;
 };
 
-type MessageStatus = 'pending' | 'done' | 'error';
+type MessageStatus = 'pending' | 'indexing' | 'streaming' | 'done' | 'error';
 
 type ChatMessage = {
 	id: string;
@@ -43,21 +44,27 @@ interface Props {
 	conversationId?: string;
 }
 
-function renderInline(text: string) {
-	// Handle **bold** and [PMID: XXXXXXXX] inline
-	const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|\[PMID:\s*\d+\])/g);
+function renderInline(text: string, sources?: Source[] | null) {
+	// Handle **bold**, *italic*, [PMID: XXXXXXXX] and (PMID: XXXXXXXX) inline
+	const parts = text.split(
+		/(\*\*[^*]+\*\*|\*[^*]+\*|[\[(]PMID:\s*\d+[\])])/g,
+	);
 	return parts.map((part, i) => {
-		const pmid = part.match(/\[PMID:\s*(\d+)\]/);
+		const pmid = part.match(/[\[(]PMID:\s*(\d+)[\])]/);
 		if (pmid) {
+			const pmidStr = pmid[1];
+			const idx = sources?.findIndex((s) => s.pmid === pmidStr) ?? -1;
+			const label = idx >= 0 ? idx + 1 : null;
 			return (
 				<a
 					key={i}
-					href={`https://pubmed.ncbi.nlm.nih.gov/${pmid[1]}/`}
+					href={`https://pubmed.ncbi.nlm.nih.gov/${pmidStr}/`}
 					target='_blank'
 					rel='noopener noreferrer'
-					className='text-blue-400 hover:text-blue-300 hover:underline'
+					title={sources?.[idx]?.title ?? `PMID ${pmidStr}`}
+					className='text-slate-500 dark:text-slate-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors'
 				>
-					{part}
+					({label ?? pmidStr})
 				</a>
 			);
 		}
@@ -81,7 +88,7 @@ function renderInline(text: string) {
 	});
 }
 
-function renderContent(text: string) {
+function renderContent(text: string, sources?: Source[] | null) {
 	return text.split('\n').map((line, i) => {
 		// Whole line is a heading: **Heading Text** or *Heading Text*
 		const heading = line.match(/^(?:\*\*([^*]+)\*\*|\*([^*]+)\*)$/);
@@ -99,7 +106,7 @@ function renderContent(text: string) {
 		if (line.trim() === '') {
 			return <br key={i} />;
 		}
-		return <p key={i}>{renderInline(line)}</p>;
+		return <p key={i}>{renderInline(line, sources)}</p>;
 	});
 }
 
@@ -208,10 +215,16 @@ export default function ChatView({ conversationId }: Props) {
 					})),
 				);
 
-				// Resume polling for any pending messages (e.g. after page reload)
-				rows.filter((m) => m.status === 'pending').forEach((m) =>
-					startPolling(m.id as string, conversationId),
+				// Resume polling for any pending/streaming messages (e.g. after page reload mid-stream)
+				const inProgress = rows.filter(
+					(m) => m.status === 'pending' || m.status === 'streaming',
 				);
+				if (inProgress.length > 0) {
+					setLoading(true);
+					inProgress.forEach((m) =>
+						startPolling(m.id as string, conversationId),
+					);
+				}
 			})
 			.finally(() => setFetchingMessages(false));
 	}, [conversationId]);
@@ -366,19 +379,89 @@ export default function ChatView({ conversationId }: Props) {
 				),
 			);
 
-			// Kick off async LLM processing - returns 202 immediately
-			await fetch('/api/ask', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					query: text,
-					conversationId: convoId,
-					messageId: dbAssistantId,
-				}),
-			});
+			// Stream the LLM response token by token via SSE
+			const updateBubble = (patch: Partial<ChatMessage>) =>
+				setMessages((prev) =>
+					prev.map((m) =>
+						m.id === dbAssistantId ? { ...m, ...patch } : m,
+					),
+				);
 
-			// Poll DB every 2s until done or error
-			startPolling(dbAssistantId, convoId);
+			try {
+				const res = await fetch('/api/ask', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						query: text,
+						conversationId: convoId,
+						messageId: dbAssistantId,
+						stream: true,
+					}),
+				});
+
+				if (!res.ok) throw new Error(`${res.status}`);
+
+				const reader = res.body!.getReader();
+				const decoder = new TextDecoder();
+				let buf = '';
+
+				outer: while (true) {
+					const { done, value } = await reader.read();
+					if (done) break;
+					buf += decoder.decode(value, { stream: true });
+					const lines = buf.split('\n');
+					buf = lines.pop() ?? '';
+
+					let eventName = '';
+					for (const line of lines) {
+						if (line.startsWith('event:')) {
+							eventName = line.slice(6).trim();
+							continue;
+						}
+						if (!line.startsWith('data:')) continue;
+						const payload = JSON.parse(line.slice(5).trim());
+
+						if (eventName === 'progress') {
+							updateBubble({ status: 'indexing' });
+						} else if (eventName === 'meta') {
+							updateBubble({ sources: payload.sources });
+						} else if (eventName === 'token') {
+							setMessages((prev) =>
+								prev.map((m) =>
+									m.id === dbAssistantId
+										? {
+												...m,
+												status: 'streaming',
+												content:
+													m.content + payload.content,
+											}
+										: m,
+								),
+							);
+							setTimeout(scrollToBottom, 0);
+						} else if (eventName === 'done') {
+							updateBubble({ status: 'done' });
+							setLoading(false);
+							break outer;
+						} else if (eventName === 'error') {
+							updateBubble({
+								status: 'error',
+								content:
+									payload.error ?? 'Something went wrong.',
+							});
+							setLoading(false);
+							break outer;
+						}
+					}
+				}
+				reader.releaseLock();
+			} catch {
+				updateBubble({
+					status: 'error',
+					content: 'Something went wrong. Please try again.',
+				});
+				setLoading(false);
+			}
 		} catch {
 			patchAssistant(dbAssistantId, localConvoId!, {
 				content: 'Something went wrong. Please try again.',
@@ -417,7 +500,14 @@ export default function ChatView({ conversationId }: Props) {
 				) : (
 					<ScrollArea className='flex-1 min-h-0'>
 						<div className='max-w-3xl mx-auto px-4 py-6 space-y-4'>
-							{messages.map((msg) => (
+							{messages.map((msg) => {
+								if (
+									msg.role === 'assistant' &&
+									!msg.content &&
+									msg.status !== 'pending' &&
+									msg.status !== 'indexing'
+								) return null;
+								return (
 								<div
 									key={msg.id}
 									className={`flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
@@ -432,18 +522,31 @@ export default function ChatView({ conversationId }: Props) {
 										>
 											{/* Content or loading dots */}
 											{msg.role === 'assistant' &&
-											msg.status === 'pending' ? (
-												<span className='flex gap-1 items-center h-4'>
-													<span className='w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce [animation-delay:0ms]' />
-													<span className='w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce [animation-delay:150ms]' />
-													<span className='w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce [animation-delay:300ms]' />
+											(msg.status === 'pending' ||
+												msg.status === 'indexing') ? (
+												<span className='flex items-center gap-2 h-5'>
+													<span className='text-sm text-slate-400 dark:text-slate-500'>
+														{msg.status ===
+														'indexing'
+															? 'Indexing papers'
+															: 'Thinking'}
+													</span>
+													<span className='flex gap-1 items-center'>
+														<span className='w-1 h-1 rounded-full bg-slate-400 dark:bg-slate-500 animate-bounce [animation-delay:0ms]' />
+														<span className='w-1 h-1 rounded-full bg-slate-400 dark:bg-slate-500 animate-bounce [animation-delay:150ms]' />
+														<span className='w-1 h-1 rounded-full bg-slate-400 dark:bg-slate-500 animate-bounce [animation-delay:300ms]' />
+													</span>
 												</span>
 											) : (
 												<div className='space-y-0'>
-													{renderContent(msg.content)}
+													{renderContent(
+														msg.content,
+														msg.sources,
+													)}
 												</div>
 											)}
 											{msg.role === 'assistant' &&
+												msg.status === 'done' &&
 												msg.sources &&
 												msg.sources.length > 0 && (
 													<SourceBadge
@@ -453,32 +556,46 @@ export default function ChatView({ conversationId }: Props) {
 														}
 													/>
 												)}
-										</div>
-										{msg.status !== 'pending' && (
-											<button
-												onClick={() => {
-													navigator.clipboard.writeText(
-														msg.content,
-													);
-													setCopiedId(msg.id);
-													setTimeout(
-														() => setCopiedId(null),
-														2000,
-													);
-												}}
-												className={`absolute -bottom-5 opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ${msg.role === 'user' ? 'right-1' : 'left-1'}`}
-												title='Copy'
-											>
-												{copiedId === msg.id ? (
-													<Check className='h-3.5 w-3.5 text-green-500' />
-												) : (
-													<Copy className='h-3.5 w-3.5' />
+											{msg.role === 'assistant' &&
+												msg.status === 'done' && (
+													<p className='mt-3 text-xs text-slate-900 dark:text-white font-medium'>
+														Healthwise is AI and can
+														make mistakes. Please
+														proceed with caution.
+													</p>
 												)}
-											</button>
-										)}
+										</div>
+										{msg.status !== 'pending' &&
+											msg.status !== 'indexing' &&
+											msg.status !== 'streaming' && (
+												<button
+													onClick={() => {
+														navigator.clipboard.writeText(
+															msg.content,
+														);
+														setCopiedId(msg.id);
+														setTimeout(
+															() =>
+																setCopiedId(
+																	null,
+																),
+															2000,
+														);
+													}}
+													className={`absolute -bottom-5 opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ${msg.role === 'user' ? 'right-1' : 'left-1'}`}
+													title='Copy'
+												>
+													{copiedId === msg.id ? (
+														<Check className='h-3.5 w-3.5 text-green-500' />
+													) : (
+														<Copy className='h-3.5 w-3.5' />
+													)}
+												</button>
+											)}
 									</div>
 								</div>
-							))}
+								);
+							})}
 							<div ref={bottomRef} />
 						</div>
 					</ScrollArea>
@@ -486,11 +603,11 @@ export default function ChatView({ conversationId }: Props) {
 
 				{/* Scroll to bottom */}
 				{showScrollBtn && (
-					<div className='absolute bottom-36 left-1/2 -translate-x-1/2 z-10'>
+					<div className='absolute bottom-40 left-1/2 -translate-x-1/2 z-10'>
 						<Button
 							size='icon'
 							onClick={scrollToBottom}
-							className='rounded-full shadow-md bg-white dark:bg-white/10 border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/15 h-8 w-8'
+							className='rounded-full shadow-md bg-white dark:bg-white border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-600 hover:bg-slate-50 dark:hover:bg-white/90 h-8 w-8'
 						>
 							<ArrowDown className='h-4 w-4' />
 						</Button>
@@ -575,14 +692,14 @@ export default function ChatView({ conversationId }: Props) {
 						<ul className='p-4 space-y-3'>
 							{drawerSources?.map((source, i) => (
 								<li key={source.pmid}>
-									<a
+									<Link
 										href={source.pubmedUrl}
 										target='_blank'
 										rel='noopener noreferrer'
 										className='flex gap-3 p-3 rounded-xl border border-slate-100 dark:border-white/8 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors group'
 									>
 										{/* Icon */}
-										<div className='w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950/50 flex items-center justify-center shrink-0 text-blue-700 dark:text-blue-400 text-xs font-bold'>
+										<div className='w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-950/50 flex items-center justify-center shrink-0 text-blue-700 dark:text-blue-400 text-xs font-bold'>
 											{i + 1}
 										</div>
 										{/* Content */}
@@ -603,7 +720,7 @@ export default function ChatView({ conversationId }: Props) {
 											)}
 										</div>
 										<ExternalLink className='h-3.5 w-3.5 shrink-0 text-slate-300 dark:text-slate-600 group-hover:text-blue-500 transition-colors mt-0.5' />
-									</a>
+									</Link>
 								</li>
 							))}
 						</ul>

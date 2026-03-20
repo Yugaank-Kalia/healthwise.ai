@@ -145,11 +145,11 @@ export async function generateResponse(
 // Finds all [PMID:XXXXXXXX] references in the answer and maps them
 // to paper metadata
 
-function extractCitations(
+export function extractCitations(
 	answer: string,
 	papers: PaperReference[],
 ): Citation[] {
-	const pmidPattern = /\[PMID[:\s]*(\d+)\]/g;
+	const pmidPattern = /[\[(]PMID[:\s]*(\d+)[\])]/g;
 	const citedPmids = new Set<string>();
 
 	let match: RegExpExecArray | null;
@@ -171,4 +171,100 @@ function extractCitations(
 			};
 		})
 		.filter((c): c is Citation => c !== null);
+}
+
+// ─── Streaming response ───────────────────────────────────────────────────────
+
+export async function generateResponseStream(
+	query: string,
+	context: ContextChunk[],
+	papers: PaperReference[],
+): Promise<{ stream: ReadableStream<string>; papers: PaperReference[] }> {
+	if (context.length === 0) {
+		const fallback =
+			"I don't have any NIH research on this specific topic in my current knowledge base. Try rephrasing your question or asking about a related nutrition topic.";
+		return {
+			stream: new ReadableStream<string>({
+				start(controller) {
+					controller.enqueue(fallback);
+					controller.close();
+				},
+			}),
+			papers,
+		};
+	}
+
+	const userMessage = buildUserMessage(query, context);
+
+	const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${OLLAMA_API_KEY}`,
+			'Content-Type': 'application/json',
+		},
+		body: JSON.stringify({
+			model: MODEL,
+			messages: [
+				{ role: 'system', content: SYSTEM_PROMPT },
+				{ role: 'user', content: userMessage },
+			],
+			stream: true,
+			options: {
+				temperature: 0.3,
+				top_p: 0.9,
+				num_ctx: 32768,
+			},
+		}),
+	});
+
+	if (!res.ok) {
+		const body = await res.text().catch(() => '');
+		throw new Error(
+			`Ollama API failed: ${res.status} ${res.statusText} - ${body}`,
+		);
+	}
+
+	const responseBody = res.body!;
+
+	const stream = new ReadableStream<string>({
+		async start(controller) {
+			const reader = responseBody.getReader();
+			const decoder = new TextDecoder();
+			let buffer = '';
+
+			try {
+				while (true) {
+					const { done, value } = await reader.read();
+					if (done) break;
+
+					buffer += decoder.decode(value, { stream: true });
+					const lines = buffer.split('\n');
+					buffer = lines.pop() ?? '';
+
+					for (const line of lines) {
+						if (!line.trim()) continue;
+						try {
+							const json = JSON.parse(line);
+							if (json.message?.content) {
+								controller.enqueue(json.message.content);
+							}
+							if (json.done) {
+								controller.close();
+								return;
+							}
+						} catch {
+							// skip malformed line
+						}
+					}
+				}
+				controller.close();
+			} catch (err) {
+				controller.error(err);
+			} finally {
+				reader.releaseLock();
+			}
+		},
+	});
+
+	return { stream, papers };
 }
