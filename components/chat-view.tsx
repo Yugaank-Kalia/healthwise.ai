@@ -21,6 +21,11 @@ import {
 	DrawerClose,
 } from '@/components/ui/drawer';
 import Link from 'next/link';
+import {
+	HoverCard,
+	HoverCardContent,
+	HoverCardTrigger,
+} from '@/components/ui/hover-card';
 
 type Source = {
 	pmid: string;
@@ -44,28 +49,99 @@ interface Props {
 	conversationId?: string;
 }
 
+function SourceBadgeInline({
+	pmidStr,
+	sources,
+	keyPrefix,
+}: {
+	pmidStr: string;
+	sources?: Source[] | null;
+	keyPrefix: string;
+}) {
+	const idx = sources?.findIndex((s) => s.pmid === pmidStr) ?? -1;
+	const label = idx >= 0 ? idx + 1 : null;
+	const source = idx >= 0 ? sources?.[idx] : null;
+	return (
+		<HoverCard key={keyPrefix}>
+			<HoverCardTrigger
+				href={`https://pubmed.ncbi.nlm.nih.gov/${pmidStr}/`}
+				target='_blank'
+				rel='noopener noreferrer'
+				delay={200}
+				closeDelay={100}
+				className='inline-flex items-center justify-center w-4 h-4 rounded-full bg-slate-200 dark:bg-white/15 text-[9px] font-semibold text-slate-600 dark:text-slate-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 hover:text-blue-700 dark:hover:text-blue-300 transition-colors align-middle mx-0.5'
+			>
+				{label ?? pmidStr}
+			</HoverCardTrigger>
+			{source && (
+				<HoverCardContent
+					side='top'
+					align='start'
+					className='w-72 p-3 space-y-1.5'
+				>
+					<p className='text-[10px] font-medium text-slate-400 dark:text-slate-500'>
+						pubmed.ncbi.nlm.nih.gov
+					</p>
+					<p className='text-xs font-medium text-slate-800 dark:text-slate-200 leading-snug line-clamp-3'>
+						{source.title}
+					</p>
+					{(source.authors || source.year) && (
+						<p className='text-[10px] text-slate-400 dark:text-slate-500 truncate'>
+							{source.authors
+								? `${source.authors.split(',')[0]}${source.authors.includes(',') ? ' et al.' : ''}${source.year ? ` · ${source.year}` : ''}`
+								: source.year}
+						</p>
+					)}
+					<a
+						href={source.pubmedUrl}
+						target='_blank'
+						rel='noopener noreferrer'
+						className='inline-flex items-center gap-1 text-[10px] text-blue-600 dark:text-blue-400 hover:underline mt-0.5'
+					>
+						Open in PubMed
+						<ExternalLink className='h-2.5 w-2.5' />
+					</a>
+				</HoverCardContent>
+			)}
+		</HoverCard>
+	);
+}
+
 function renderInline(text: string, sources?: Source[] | null) {
-	// Handle **bold**, *italic*, [PMID: XXXXXXXX] and (PMID: XXXXXXXX) inline
+	// Match bold, italic, a group of PMIDs, or a single PMID
 	const parts = text.split(
-		/(\*\*[^*]+\*\*|\*[^*]+\*|[\[(]PMID:\s*\d+[\])])/g,
+		/(\*\*[^*]+\*\*|\*[^*]+\*|[\[(](?:PMID:\s*\d+(?:,\s*)?)+[\])])/g,
 	);
 	return parts.map((part, i) => {
+		// Multi-PMID group: [PMID:X, PMID:Y] or (PMID:X, PMID:Y)
+		const multiPmid = part.match(/^[\[(]((?:PMID:\s*\d+(?:,\s*)?)+)[\])]$/);
+		if (multiPmid) {
+			const pmids = [...multiPmid[1].matchAll(/PMID:\s*(\d+)/g)].map(
+				(m) => m[1],
+			);
+			return (
+				<span key={i}>
+					{pmids.map((pmidStr, j) => (
+						<SourceBadgeInline
+							key={`${i}-${j}`}
+							pmidStr={pmidStr}
+							sources={sources}
+							keyPrefix={`${i}-${j}`}
+						/>
+					))}
+				</span>
+			);
+		}
+		// Single PMID: [PMID: X] or (PMID: X)
 		const pmid = part.match(/[\[(]PMID:\s*(\d+)[\])]/);
 		if (pmid) {
-			const pmidStr = pmid[1];
-			const idx = sources?.findIndex((s) => s.pmid === pmidStr) ?? -1;
-			const label = idx >= 0 ? idx + 1 : null;
 			return (
-				<a
+				<SourceBadgeInline
 					key={i}
-					href={`https://pubmed.ncbi.nlm.nih.gov/${pmidStr}/`}
-					target='_blank'
-					rel='noopener noreferrer'
-					title={sources?.[idx]?.title ?? `PMID ${pmidStr}`}
-					className='text-slate-500 dark:text-slate-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors'
-				>
-					({label ?? pmidStr})
-				</a>
+					pmidStr={pmid[1]}
+					sources={sources}
+					keyPrefix={String(i)}
+				/>
 			);
 		}
 		const bold = part.match(/^\*\*([^*]+)\*\*$/);
@@ -506,94 +582,99 @@ export default function ChatView({ conversationId }: Props) {
 									!msg.content &&
 									msg.status !== 'pending' &&
 									msg.status !== 'indexing'
-								) return null;
+								)
+									return null;
 								return (
-								<div
-									key={msg.id}
-									className={`flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
-								>
-									<div className='group relative max-w-[80%]'>
-										<div
-											className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-												msg.role === 'user'
-													? 'bg-blue-900 text-white rounded-br-sm'
-													: 'bg-slate-100 dark:bg-white/8 text-slate-800 dark:text-slate-200 rounded-bl-sm'
-											}`}
-										>
-											{/* Content or loading dots */}
-											{msg.role === 'assistant' &&
-											(msg.status === 'pending' ||
-												msg.status === 'indexing') ? (
-												<span className='flex items-center gap-2 h-5'>
-													<span className='text-sm text-slate-400 dark:text-slate-500'>
-														{msg.status ===
-														'indexing'
-															? 'Indexing papers'
-															: 'Thinking'}
+									<div
+										key={msg.id}
+										className={`flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
+									>
+										<div className='group relative max-w-[80%]'>
+											<div
+												className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+													msg.role === 'user'
+														? 'bg-blue-900 text-white rounded-br-sm'
+														: 'bg-slate-100 dark:bg-white/8 text-slate-800 dark:text-slate-200 rounded-bl-sm'
+												}`}
+											>
+												{/* Content or loading dots */}
+												{msg.role === 'assistant' &&
+												(msg.status === 'pending' ||
+													msg.status ===
+														'indexing') ? (
+													<span className='flex items-center gap-2 h-5'>
+														<span className='text-sm text-slate-400 dark:text-slate-500'>
+															{msg.status ===
+															'indexing'
+																? 'Indexing papers'
+																: 'Thinking'}
+														</span>
+														<span className='flex gap-1 items-center'>
+															<span className='w-1 h-1 rounded-full bg-slate-400 dark:bg-slate-500 animate-bounce [animation-delay:0ms]' />
+															<span className='w-1 h-1 rounded-full bg-slate-400 dark:bg-slate-500 animate-bounce [animation-delay:150ms]' />
+															<span className='w-1 h-1 rounded-full bg-slate-400 dark:bg-slate-500 animate-bounce [animation-delay:300ms]' />
+														</span>
 													</span>
-													<span className='flex gap-1 items-center'>
-														<span className='w-1 h-1 rounded-full bg-slate-400 dark:bg-slate-500 animate-bounce [animation-delay:0ms]' />
-														<span className='w-1 h-1 rounded-full bg-slate-400 dark:bg-slate-500 animate-bounce [animation-delay:150ms]' />
-														<span className='w-1 h-1 rounded-full bg-slate-400 dark:bg-slate-500 animate-bounce [animation-delay:300ms]' />
-													</span>
-												</span>
-											) : (
-												<div className='space-y-0'>
-													{renderContent(
-														msg.content,
-														msg.sources,
-													)}
-												</div>
-											)}
-											{msg.role === 'assistant' &&
-												msg.status === 'done' &&
-												msg.sources &&
-												msg.sources.length > 0 && (
-													<SourceBadge
-														sources={msg.sources}
-														onClick={() =>
-															openSources(msg)
-														}
-													/>
+												) : (
+													<div className='space-y-0'>
+														{renderContent(
+															msg.content,
+															msg.sources,
+														)}
+													</div>
 												)}
-											{msg.role === 'assistant' &&
-												msg.status === 'done' && (
-													<p className='mt-3 text-xs text-slate-900 dark:text-white font-medium'>
-														Healthwise is AI and can
-														make mistakes. Please
-														proceed with caution.
-													</p>
+												{msg.role === 'assistant' &&
+													msg.status === 'done' &&
+													msg.sources &&
+													msg.sources.length > 0 && (
+														<SourceBadge
+															sources={
+																msg.sources
+															}
+															onClick={() =>
+																openSources(msg)
+															}
+														/>
+													)}
+												{msg.role === 'assistant' &&
+													msg.status === 'done' && (
+														<p className='mt-3 text-xs text-slate-900 dark:text-white font-medium'>
+															Healthwise is AI and
+															can make mistakes.
+															Please proceed with
+															caution.
+														</p>
+													)}
+											</div>
+											{msg.status !== 'pending' &&
+												msg.status !== 'indexing' &&
+												msg.status !== 'streaming' && (
+													<button
+														onClick={() => {
+															navigator.clipboard.writeText(
+																msg.content,
+															);
+															setCopiedId(msg.id);
+															setTimeout(
+																() =>
+																	setCopiedId(
+																		null,
+																	),
+																2000,
+															);
+														}}
+														className={`absolute -bottom-5 opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ${msg.role === 'user' ? 'right-1' : 'left-1'}`}
+														title='Copy'
+													>
+														{copiedId === msg.id ? (
+															<Check className='h-3.5 w-3.5 text-green-500' />
+														) : (
+															<Copy className='h-3.5 w-3.5' />
+														)}
+													</button>
 												)}
 										</div>
-										{msg.status !== 'pending' &&
-											msg.status !== 'indexing' &&
-											msg.status !== 'streaming' && (
-												<button
-													onClick={() => {
-														navigator.clipboard.writeText(
-															msg.content,
-														);
-														setCopiedId(msg.id);
-														setTimeout(
-															() =>
-																setCopiedId(
-																	null,
-																),
-															2000,
-														);
-													}}
-													className={`absolute -bottom-5 opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ${msg.role === 'user' ? 'right-1' : 'left-1'}`}
-													title='Copy'
-												>
-													{copiedId === msg.id ? (
-														<Check className='h-3.5 w-3.5 text-green-500' />
-													) : (
-														<Copy className='h-3.5 w-3.5' />
-													)}
-												</button>
-											)}
 									</div>
-								</div>
 								);
 							})}
 							<div ref={bottomRef} />
