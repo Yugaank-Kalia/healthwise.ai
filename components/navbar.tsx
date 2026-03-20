@@ -19,7 +19,7 @@ export default function Navbar() {
 	useEffect(() => setMounted(true), []);
 
 	return (
-		<nav className='flex items-center justify-between px-4 sm:px-8 py-5 max-w-5xl mx-auto w-full'>
+		<nav className='flex items-center justify-between p-5 mx-auto w-full'>
 			<Link href='/'>
 				<span className='text-lg font-bold text-blue-900 dark:text-blue-300 tracking-tight'>
 					healthwise.ai

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-	MessageSquarePlus,
+	MessageCirclePlus,
 	MoreHorizontal,
 	Pencil,
 	Trash2,
@@ -107,21 +107,23 @@ export default function ChatSidebar() {
 	}
 
 	return (
-		<aside className='w-64 shrink-0 hidden sm:flex flex-col border-r border-slate-200 dark:border-white/8 bg-slate-50 dark:bg-white/3 overflow-hidden'>
-			<div className='p-3'>
-				<Button
-					onClick={handleNewChat}
-					variant='ghost'
-					className='w-full justify-start gap-2 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/8 rounded-lg'
-				>
-					<MessageSquarePlus className='h-4 w-4 shrink-0' />
-					<span className='text-sm font-medium'>New Chat</span>
-				</Button>
-			</div>
+		<aside className='w-64 shrink-0 hidden sm:flex flex-col overflow-hidden'>
+			{pathname !== '/dashboard' && (
+				<div className='p-3'>
+					<Button
+						onClick={handleNewChat}
+						variant='ghost'
+						className='w-full justify-start gap-2 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/8 rounded-lg'
+					>
+						<MessageCirclePlus className='h-4 w-4 shrink-0' />
+						<span className='text-sm font-medium'>New Chat</span>
+					</Button>
+				</div>
+			)}
 
 			<div className='px-3 pb-1'>
 				<p className='text-xs font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider px-2'>
-					Conversations
+					History
 				</p>
 			</div>
 
