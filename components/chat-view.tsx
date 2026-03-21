@@ -529,7 +529,14 @@ export default function ChatView({ conversationId }: Props) {
 				}),
 			});
 
-			if (!res.ok) throw new Error(`${res.status}`);
+			if (!res.ok) {
+				const body = await res.json().catch(() => ({}));
+				const msg =
+					body.error ?? 'Something went wrong. Please try again.';
+				update({ status: 'error', content: msg });
+				setLoading(false);
+				return;
+			}
 
 			const reader = res.body!.getReader();
 			const decoder = new TextDecoder();
@@ -541,7 +548,6 @@ export default function ChatView({ conversationId }: Props) {
 				buf += decoder.decode(value, { stream: true });
 				const lines = buf.split('\n');
 				buf = lines.pop() ?? '';
-
 				let eventName = '';
 				for (const line of lines) {
 					if (line.startsWith('event:')) {
@@ -827,9 +833,14 @@ export default function ChatView({ conversationId }: Props) {
 
 								if (isAssistant && isPending) {
 									return (
-										<div key={msg.id} className='flex flex-col items-start'>
+										<div
+											key={msg.id}
+											className='flex flex-col items-start'
+										>
 											<ShimmerLoading
-												indexing={msg.status === 'indexing'}
+												indexing={
+													msg.status === 'indexing'
+												}
 											/>
 										</div>
 									);

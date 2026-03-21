@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/src/db';
-import { messages } from '@/src/db/schemas/schema';
+import { messages, searchQueries } from '@/src/db/schemas/schema';
 import {
 	answerStream,
 	type OrchestratorStreamResult,
 } from '@/lib/pubmed/orchestrator';
 import { extractCitations } from '@/lib/llm';
 import { auth } from '@/lib/auth';
-import { and, eq } from 'drizzle-orm';
+import { and, count, eq, gte } from 'drizzle-orm';
+
+const DAILY_LIMIT = 10;
 
 export async function POST(req: NextRequest) {
 	const session = await auth.api.getSession({ headers: req.headers });
@@ -19,6 +21,29 @@ export async function POST(req: NextRequest) {
 		return NextResponse.json(
 			{ error: 'Missing required fields' },
 			{ status: 400 },
+		);
+	}
+
+	// ── Rate limit: n queries per user per day (UTC) ──────────────────────
+	const startOfDay = new Date();
+	startOfDay.setUTCHours(0, 0, 0, 0);
+
+	const [{ value: queryCount }] = await db
+		.select({ value: count() })
+		.from(searchQueries)
+		.where(
+			and(
+				eq(searchQueries.userId, session.user.id),
+				gte(searchQueries.createdAt, startOfDay),
+			),
+		);
+
+	if (queryCount >= DAILY_LIMIT) {
+		return NextResponse.json(
+			{
+				error: `You've reached your daily limit of ${DAILY_LIMIT} queries. Come back tomorrow.`,
+			},
+			{ status: 429 },
 		);
 	}
 
