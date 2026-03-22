@@ -4,6 +4,22 @@
 
 - **Healthy recipes** - recipe suggestions grounded in NIH nutritional research
 
+## [1.3.0] - 2026-03-21
+
+### Response Quality Feedback
+
+- **Thumbs up / thumbs down on assistant messages** - users can rate any completed response directly from the chat bubble. The primary motivation is measurement: as the retrieval and reranking pipeline evolves, we needed a lightweight ground-truth signal to know whether changes are actually producing better answers - not just faster or different ones. Ratings are stored in a new `message_feedback` table (keyed by message and user) and can be queried at any time (`select value, count(*) from message_feedback group by value`). One vote per user per message; clicking the same thumb again toggles it off. Feedback persists across page reloads.
+
+### Retrieval Improvements
+
+- **Cross-encoder reranker** - the previous pipeline ranked chunks by cosine similarity alone, which allowed two highly-similar papers to occupy all 6 context slots. The new pipeline fetches 20 candidates at a lower threshold, rescores each query-chunk pair with `BAAI/bge-reranker-base` (a cross-encoder that reads query and document together for a far more accurate relevance score), then applies diversity enforcement: the top chunk from at least 4 unique papers is guaranteed before remaining slots are filled by score. In practice this surfaces more varied evidence and reduces single-paper dominance.
+
+### Bug Fixes
+
+- **Stale conversation data after deletion** - deleting a conversation from the sidebar now immediately clears the chat view. Previously, `router.replace` served a cached page render, leaving the old messages visible until a manual reload.
+- **404 for invalid conversation URLs** - navigating to `/dashboard/<non-uuid>` now returns a proper 404 page instead of crashing with a Postgres type error. Valid UUIDs for deleted conversations are also caught and redirect correctly.
+- **PMID citation parsing** - bare (`PMID:28991769`) and curly-bracket (`{PMID:28991769}`) citation formats are now parsed and rendered the same as the standard `[PMID:...]` format. The LLM occasionally omits brackets despite the system prompt; this makes the UI robust to that.
+
 ## [1.2.0] - 2026-03-19
 
 ### Streaming & Real-time Feedback
@@ -14,7 +30,7 @@
 
 ### Citations & Sources
 
-- **Inline PMID badges** - `[PMID:XXXXXXXX]` citations rendered as numbered badges with hover cards showing paper title, authors, and a direct PubMed link. Users can verify any claim in one click without leaving the conversation.
+- **Inline PMID badges** - `PMID:XXXXXXXX` citations rendered as numbered badges with hover cards showing paper title, authors, and a direct PubMed link. Users can verify any claim in one click without leaving the conversation.
 - **Sources drawer** - a panel listing all cited papers with full metadata. Gives users a clear picture of what research informed the answer and lets them explore further.
 
 ### Account Management

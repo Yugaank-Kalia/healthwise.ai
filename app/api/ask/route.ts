@@ -38,14 +38,14 @@ export async function POST(req: NextRequest) {
 			),
 		);
 
-	if (queryCount >= DAILY_LIMIT) {
-		return NextResponse.json(
-			{
-				error: `You've reached your daily limit of ${DAILY_LIMIT} queries. Come back tomorrow.`,
-			},
-			{ status: 429 },
-		);
-	}
+	// if (queryCount >= DAILY_LIMIT) {
+	// 	return NextResponse.json(
+	// 		{
+	// 			error: `You've reached your daily limit of ${DAILY_LIMIT} queries. Come back tomorrow.`,
+	// 		},
+	// 		{ status: 429 },
+	// 	);
+	// }
 
 	const encoder = new TextEncoder();
 

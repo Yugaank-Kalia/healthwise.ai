@@ -149,7 +149,7 @@ export function extractCitations(
 	answer: string,
 	papers: PaperReference[],
 ): Citation[] {
-	const pmidPattern = /[\[(]PMID[:\s]*(\d+)[\])]/g;
+	const pmidPattern = /[\[({]?PMID[:\s]*(\d+)[\])}]?/g;
 	const citedPmids = new Set<string>();
 
 	let match: RegExpExecArray | null;

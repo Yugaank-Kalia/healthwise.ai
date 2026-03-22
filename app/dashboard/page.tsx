@@ -6,5 +6,5 @@ export default async function ConversationPage({
 	params: Promise<{ conversationId: string }>;
 }) {
 	const { conversationId } = await params;
-	return <ChatView conversationId={conversationId} />;
+	return <ChatView conversationId={conversationId} key='home' />;
 }

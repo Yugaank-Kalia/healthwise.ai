@@ -10,7 +10,12 @@ import {
 import { inArray } from 'drizzle-orm';
 import { ingestPapers } from '@/lib/pubmed/ingest';
 import { generateResponse, generateResponseStream } from '@/lib/llm';
-import { searchChunks, checkCacheCoverage, type SearchResult } from './search';
+import {
+	searchChunksWide,
+	checkCacheCoverage,
+	type SearchResult,
+} from './search';
+import { rerankResults } from '@/lib/reranker';
 import { searchAndFetchPapers, PubMedPaper } from '@/lib/pubmed/pubmed';
 import { isNutritionQuery } from './guard';
 
@@ -58,7 +63,6 @@ export interface OrchestratorOptions {
 	userId?: string;
 	cacheThreshold?: number;
 	minCacheChunks?: number;
-	searchThreshold?: number;
 	topK?: number;
 	maxPubMedResults?: number;
 	onProgress?: (stage: 'fetching' | 'indexing') => void;
@@ -233,10 +237,9 @@ async function prepareContext(
 ): Promise<PreparedContext> {
 	const {
 		cacheThreshold = 0.55,
-		minCacheChunks = 2,
-		searchThreshold = 0.45,
+		minCacheChunks = 4,
 		topK = 6,
-		maxPubMedResults = 8,
+		maxPubMedResults = 15,
 	} = options;
 
 	const startTime = Date.now();
@@ -293,17 +296,17 @@ async function prepareContext(
 		});
 
 		if (cache.sufficient) {
-			const results = await searchChunks(q, {
-				topK,
-				threshold: searchThreshold,
+			const wideResults = await searchChunksWide(q, {
+				topK: 20,
+				threshold: 0.3,
 			});
-			cachedChunks.push(...results);
+			const reranked = await rerankResults(q, wideResults, topK);
+			cachedChunks.push(...reranked);
 		} else {
 			uncachedQueries.push(q);
 		}
 	}
 	const cacheHit = uncachedQueries.length === 0;
-
 	// ── Step 3: Fetch from PubMed for uncached queries only ──────────────
 
 	if (uncachedQueries.length > 0) {
@@ -336,11 +339,12 @@ async function prepareContext(
 		// ── Step 5: Search again for uncached queries with fresh data ────
 
 		for (const q of uncachedQueries) {
-			const results = await searchChunks(q, {
-				topK,
-				threshold: searchThreshold,
+			const wideResults = await searchChunksWide(q, {
+				topK: 20,
+				threshold: 0.3,
 			});
-			cachedChunks.push(...results);
+			const reranked = await rerankResults(q, wideResults, topK);
+			cachedChunks.push(...reranked);
 		}
 	}
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import {
 	ArrowUp,
 	ExternalLink,
@@ -9,6 +10,8 @@ import {
 	Loader2,
 	Copy,
 	Check,
+	ThumbsUp,
+	ThumbsDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -46,6 +49,7 @@ type ChatMessage = {
 	content: string;
 	sources?: Source[] | null;
 	status?: MessageStatus;
+	feedback?: 'up' | 'down' | null;
 };
 
 interface Props {
@@ -141,12 +145,14 @@ function SourceBadgeInline({
 
 function renderInline(text: string, sources?: Source[] | null) {
 	const parts = text.split(
-		/(\*\*[^*]+\*\*|\*[^*]+\*|[\[(](?:PMID:\s*\d+(?:,\s*)?)+[\])])/g,
+		/(\*\*[^*]+\*\*|\*[^*]+\*|[\[({](?:PMID:\s*\d+(?:,\s*)?)+[\])}]|PMID:\s*\d+)/g,
 	);
 
 	return parts.map((part, i) => {
 		// Multi-PMID group
-		const multiPmid = part.match(/^[\[(]((?:PMID:\s*\d+(?:,\s*)?)+)[\])]$/);
+		const multiPmid = part.match(
+			/^[\[({]((?:PMID:\s*\d+(?:,\s*)?)+)[\])}]$/,
+		);
 		if (multiPmid) {
 			const pmids = [...multiPmid[1].matchAll(/PMID:\s*(\d+)/g)].map(
 				(m) => m[1],
@@ -164,8 +170,8 @@ function renderInline(text: string, sources?: Source[] | null) {
 			);
 		}
 
-		// Single PMID
-		const pmid = part.match(/[\[(]PMID:\s*(\d+)[\])]/);
+		// Single PMID (with or without brackets)
+		const pmid = part.match(/[\[({]?PMID:\s*(\d+)[\])}]?/);
 		if (pmid)
 			return (
 				<SourceBadgeInline
@@ -225,12 +231,12 @@ function SourceBadge({
 				{sources.slice(0, 3).map((s) => (
 					<span
 						key={s.pmid}
-						className='w-4 h-4 rounded-full bg-slate-200 dark:bg-white/15 border border-white dark:border-white/10 flex items-center justify-center text-[8px] font-semibold text-slate-600 dark:text-slate-300'
+						className='w-4 h-4 rounded-full bg-slate-200 dark:bg-white/15 border border-white dark:border-white/10 flex items-center justify-center text-[10px] font-semibold text-slate-600 dark:text-slate-300'
 					>
-						N
+						P
 					</span>
 				))}
-			</span>
+			</span>{' '}
 			<span className='group-hover:underline'>
 				{sources.length} source{sources.length !== 1 ? 's' : ''}
 			</span>
@@ -244,7 +250,7 @@ type SlidePhase = 'idle' | 'exit' | 'pre-enter' | 'enter';
 
 function ShimmerLoading({ indexing }: { indexing: boolean }) {
 	const toLabel = (i: boolean) =>
-		i ? 'Fetching NIH papers — first run may take a moment' : 'Thinking…';
+		i ? 'Fetching NIH papers - first run may take a moment' : 'Thinking…';
 
 	const [label, setLabel] = useState(toLabel(indexing));
 	const [phase, setPhase] = useState<SlidePhase>('idle');
@@ -353,6 +359,7 @@ function KeyboardHint() {
 // ─── Main component ──────────────────────────────────────────────────────────
 
 export default function ChatView({ conversationId }: Props) {
+	const router = useRouter();
 	const [localConvoId, setLocalConvoId] = useState(conversationId);
 	const [messages, setMessages] = useState<ChatMessage[]>([]);
 	const [input, setInput] = useState('');
@@ -393,6 +400,45 @@ export default function ChatView({ conversationId }: Props) {
 		[],
 	);
 
+	const handleFeedback = useCallback(
+		async (msgId: string, value: 'up' | 'down') => {
+			const currentMsg = messages.find((m) => m.id === msgId);
+			const currentFeedback = currentMsg?.feedback;
+			const isRemoving = currentFeedback === value;
+
+			setMessages((prev) =>
+				prev.map((m) =>
+					m.id === msgId
+						? { ...m, feedback: isRemoving ? null : value }
+						: m,
+				),
+			);
+
+			try {
+				if (isRemoving) {
+					await fetch(`/api/messages/${msgId}/feedback`, {
+						method: 'DELETE',
+					});
+				} else {
+					await fetch(`/api/messages/${msgId}/feedback`, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ value }),
+					});
+				}
+			} catch {
+				setMessages((prev) =>
+					prev.map((m) =>
+						m.id === msgId
+							? { ...m, feedback: currentFeedback }
+							: m,
+					),
+				);
+			}
+		},
+		[messages],
+	);
+
 	// ─── Polling (recovery on reload) ──────────────────────────────────────
 
 	const startPolling = useCallback(
@@ -424,6 +470,21 @@ export default function ChatView({ conversationId }: Props) {
 		return () => pollTimers.current.forEach((t) => clearInterval(t));
 	}, []);
 
+	// ─── Reset on active conversation deletion ─────────────────────────────
+
+	useEffect(() => {
+		const onDeleted = (e: Event) => {
+			const { id } = (e as CustomEvent<{ id: string }>).detail;
+			if (id !== localConvoId) return;
+			setMessages([]);
+			setLocalConvoId(undefined);
+			setFetchingMessages(false);
+			router.replace('/dashboard');
+		};
+		window.addEventListener('conversation-deleted', onDeleted);
+		return () => window.removeEventListener('conversation-deleted', onDeleted);
+	}, [localConvoId, router]);
+
 	// ─── Load messages ─────────────────────────────────────────────────────
 
 	useEffect(() => {
@@ -437,9 +498,15 @@ export default function ChatView({ conversationId }: Props) {
 		setLocalConvoId(conversationId);
 
 		fetch(`/api/conversations/${conversationId}/messages`)
-			.then((r) => r.json())
-			.then((rows: Record<string, unknown>[]) => {
-				if (!Array.isArray(rows)) return;
+			.then((r) => {
+				if (r.status === 404) {
+					router.replace('/not-found');
+					return null;
+				}
+				return r.json();
+			})
+			.then((rows: Record<string, unknown>[] | null) => {
+				if (!rows || !Array.isArray(rows)) return;
 				const loaded = rows.map((m) => {
 					const raw = (m.status as MessageStatus) ?? 'done';
 					// Streaming interrupted mid-way: has content but stream never
@@ -452,6 +519,7 @@ export default function ChatView({ conversationId }: Props) {
 						content: m.content as string,
 						sources: m.sources as Source[] | null,
 						status,
+						feedback: (m.feedback as 'up' | 'down' | null) ?? null,
 					};
 				});
 				setMessages(loaded);
@@ -887,33 +955,89 @@ export default function ChatView({ conversationId }: Props) {
 											</div>
 
 											{isInteractive && (
-												<button
-													onClick={() => {
-														navigator.clipboard.writeText(
-															msg.content,
-														);
-														setCopiedId(msg.id);
-														setTimeout(
-															() =>
-																setCopiedId(
-																	null,
-																),
-															2000,
-														);
-													}}
-													className={`absolute -bottom-5 opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ${
-														msg.role === 'user'
-															? 'right-1'
-															: 'left-1'
-													}`}
-													title='Copy'
-												>
-													{copiedId === msg.id ? (
-														<Check className='h-3.5 w-3.5 text-green-500' />
-													) : (
-														<Copy className='h-3.5 w-3.5' />
+												<>
+													<button
+														onClick={() => {
+															navigator.clipboard.writeText(
+																msg.content,
+															);
+															setCopiedId(msg.id);
+															setTimeout(
+																() =>
+																	setCopiedId(
+																		null,
+																	),
+																2000,
+															);
+														}}
+														className={`cursor-pointer absolute -bottom-5 opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ${
+															msg.role === 'user'
+																? 'right-1'
+																: 'left-1'
+														}`}
+														title='Copy'
+													>
+														{copiedId === msg.id ? (
+															<Check className='h-3.5 w-3.5 text-green-500' />
+														) : (
+															<Copy className='h-3.5 w-3.5' />
+														)}
+													</button>
+													{isAssistant && (
+														<div className='absolute -bottom-5 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity'>
+															<button
+																onClick={() =>
+																	handleFeedback(
+																		msg.id,
+																		'up',
+																	)
+																}
+																className={`cursor-pointer transition-all active:scale-125 ${
+																	msg.feedback ===
+																	'up'
+																		? 'text-emerald-500 dark:text-emerald-400'
+																		: 'text-slate-400 hover:text-emerald-500 dark:hover:text-emerald-400'
+																}`}
+																title='Helpful'
+															>
+																<ThumbsUp
+																	className='h-3.5 w-3.5'
+																	fill={
+																		msg.feedback ===
+																		'up'
+																			? 'currentColor'
+																			: 'none'
+																	}
+																/>
+															</button>
+															<button
+																onClick={() =>
+																	handleFeedback(
+																		msg.id,
+																		'down',
+																	)
+																}
+																className={`cursor-pointer transition-all active:scale-125 ${
+																	msg.feedback ===
+																	'down'
+																		? 'text-rose-500 dark:text-rose-400'
+																		: 'text-slate-400 hover:text-rose-500 dark:hover:text-rose-400'
+																}`}
+																title='Not helpful'
+															>
+																<ThumbsDown
+																	className='h-3.5 w-3.5'
+																	fill={
+																		msg.feedback ===
+																		'down'
+																			? 'currentColor'
+																			: 'none'
+																	}
+																/>
+															</button>
+														</div>
 													)}
-												</button>
+												</>
 											)}
 										</div>
 									</div>
@@ -980,6 +1104,7 @@ export default function ChatView({ conversationId }: Props) {
 					<ScrollArea className='flex-1'>
 						<ul className='p-4 space-y-3'>
 							{drawerSources?.map((source, i) => (
+								// TODO: fix scroll-area
 								<li key={source.pmid}>
 									<Link
 										href={source.pubmedUrl}

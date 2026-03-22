@@ -119,3 +119,17 @@ export async function checkCacheCoverage(
 		chunks,
 	};
 }
+
+// ─── Wide search for reranking ────────────────────────────────────────────────
+// Fetches more candidates with a lower threshold to feed into the reranker
+
+export async function searchChunksWide(
+	query: string,
+	options: { topK?: number; threshold?: number; maxAgeDays?: number } = {},
+): Promise<SearchResult[]> {
+	return searchChunks(query, {
+		topK: options.topK ?? 20,
+		threshold: options.threshold ?? 0.3,
+		maxAgeDays: options.maxAgeDays,
+	});
+}

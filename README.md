@@ -9,8 +9,10 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 1. **Query** - user submits a nutrition question
 2. **Cache check** - vector similarity search over previously ingested PubMed chunks
 3. **Cache miss** - relevant papers are fetched from PubMed, chunked, embedded, and stored; the UI shows "Indexing papers…" during this step
-4. **Generation** - an LLM synthesizes an answer from the retrieved chunks, streamed token-by-token via SSE with inline `[PMID]` citations
-5. **Persistence** - conversations and messages are stored per-user; in-flight responses survive page reloads - the server continues streaming regardless of client connection and the client resumes polling on reload
+4. **Reranking** - a cross-encoder (`BAAI/bge-reranker-base`) rescores all candidate chunks against the query and enforces source diversity (≥4 unique papers) before context is sent to the LLM
+5. **Generation** - an LLM synthesizes an answer from the retrieved chunks, streamed token-by-token via SSE with inline `[PMID]` citations
+6. **Persistence** - conversations and messages are stored per-user; in-flight responses survive page reloads - the server continues streaming regardless of client connection and the client resumes polling on reload
+7. **Feedback** - users can rate each response with thumbs up/down; ratings are stored per-message and per-user for quality analysis
 
 ## Tech stack
 
@@ -67,11 +69,12 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 │   │   ├── orchestrator.ts                       # RAG pipeline entry point
 │   │   ├── pubmed.ts                             # PubMed E-utilities client
 │   │   ├── ingest.ts                             # Paper → chunk → embed → store
-│   │   ├── search.ts                             # pgvector similarity search
+│   │   ├── search.ts                             # pgvector similarity search (includes searchChunksWide)
 │   │   ├── embeddings.ts                         # HuggingFace embedding client
 │   │   ├── chunker.ts                            # Text chunking logic
 │   │   ├── pmc.ts                                # PubMed Central full-text fetcher
 │   │   └── guard.ts                              # Topic relevance guard
+│   ├── reranker.ts                               # Cross-encoder reranker with diversity enforcement
 │   ├── auth-client.ts
 │   ├── auth.ts                                   # better-auth server config
 │   ├── llm.ts                                    # LLM response generation
@@ -82,7 +85,7 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 │   ├── index.ts                                  # Drizzle client
 │   └── schemas/
 │       ├── auth-schema.ts                        # better-auth tables
-│       └── schema.ts                             # App tables (conversations, messages, papers)
+│       └── schema.ts                             # App tables (conversations, messages, papers, message_feedback)
 ├── public/
 │   └── open-graph.png
 ├── drizzle.config.ts

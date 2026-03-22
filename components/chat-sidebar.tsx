@@ -80,8 +80,13 @@ export default function ChatSidebar() {
 
 	async function handleDelete(id: string) {
 		await fetch(`/api/conversations/${id}`, { method: 'DELETE' });
-		if (activeId === id) router.push('/dashboard');
 		setConversations((prev) => prev.filter((c) => c.id !== id));
+		if (activeId === id) {
+			window.dispatchEvent(
+				new CustomEvent('conversation-deleted', { detail: { id } }),
+			);
+			window.dispatchEvent(new CustomEvent('sidebar-refresh'));
+		}
 	}
 
 	function startRename(convo: Conversation) {

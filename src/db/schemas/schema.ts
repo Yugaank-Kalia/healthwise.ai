@@ -143,6 +143,31 @@ export const messages = pgTable(
 	(table) => [index('messages_conversationId_idx').on(table.conversationId)],
 );
 
+// ─── message_feedback ─────────────────────────────────────────────────────────
+
+export const messageFeedback = pgTable(
+	'message_feedback',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		messageId: uuid('message_id')
+			.notNull()
+			.references(() => messages.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		value: text('value', { enum: ['up', 'down'] }).notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(table) => [
+		uniqueIndex('message_feedback_message_user_idx').on(
+			table.messageId,
+			table.userId,
+		),
+	],
+);
+
 // ─── Relations ────────────────────────────────────────────────────────────────
 
 export const nihPapersRelations = relations(nihPapers, ({ many }) => ({
@@ -179,20 +204,6 @@ export const queryCitationsRelations = relations(queryCitations, ({ one }) => ({
 	}),
 }));
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export type InsertNihPaper = typeof nihPapers.$inferInsert;
-export type SelectNihPaper = typeof nihPapers.$inferSelect;
-
-export type InsertNihChunk = typeof nihChunks.$inferInsert;
-export type SelectNihChunk = typeof nihChunks.$inferSelect;
-
-export type InsertSearchQuery = typeof searchQueries.$inferInsert;
-export type SelectSearchQuery = typeof searchQueries.$inferSelect;
-
-export type InsertQueryCitation = typeof queryCitations.$inferInsert;
-export type SelectQueryCitation = typeof queryCitations.$inferSelect;
-
 export const conversationsRelations = relations(
 	conversations,
 	({ one, many }) => ({
@@ -211,8 +222,35 @@ export const messagesRelations = relations(messages, ({ one }) => ({
 	}),
 }));
 
-export type InsertConversation = typeof conversations.$inferInsert;
-export type SelectConversation = typeof conversations.$inferSelect;
+export const messageFeedbackRelations = relations(
+	messageFeedback,
+	({ one }) => ({
+		message: one(messages, {
+			fields: [messageFeedback.messageId],
+			references: [messages.id],
+		}),
+	}),
+);
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export type InsertNihPaper = typeof nihPapers.$inferInsert;
+export type SelectNihPaper = typeof nihPapers.$inferSelect;
+
+export type InsertNihChunk = typeof nihChunks.$inferInsert;
+export type SelectNihChunk = typeof nihChunks.$inferSelect;
+
+export type InsertSearchQuery = typeof searchQueries.$inferInsert;
+export type SelectSearchQuery = typeof searchQueries.$inferSelect;
+
+export type InsertQueryCitation = typeof queryCitations.$inferInsert;
+export type SelectQueryCitation = typeof queryCitations.$inferSelect;
+
+export type InsertMessageFeedback = typeof messageFeedback.$inferInsert;
+export type SelectMessageFeedback = typeof messageFeedback.$inferSelect;
 
 export type InsertMessage = typeof messages.$inferInsert;
 export type SelectMessage = typeof messages.$inferSelect;
+
+export type InsertConversation = typeof conversations.$inferInsert;
+export type SelectConversation = typeof conversations.$inferSelect;
