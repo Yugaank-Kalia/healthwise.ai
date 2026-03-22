@@ -142,7 +142,7 @@ export default function ChatSidebar() {
 					<div
 						key={convo.id}
 						className={cn(
-							'group flex items-center gap-1 px-2 py-1.5 rounded-lg text-sm transition-colors',
+							'group flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs transition-colors cursor-pointer',
 							activeId === convo.id
 								? 'bg-slate-200 dark:bg-white/10 text-slate-900 dark:text-white'
 								: 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/6 hover:text-slate-900 dark:hover:text-white',

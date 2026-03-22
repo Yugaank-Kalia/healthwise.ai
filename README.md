@@ -85,7 +85,9 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 │   ├── index.ts                                  # Drizzle client
 │   └── schemas/
 │       ├── auth-schema.ts                        # better-auth tables
-│       └── schema.ts                             # App tables (conversations, messages, papers, message_feedback)
+│       └── schema.ts                             # App tables (conversations, messages, papers, message_feedback, recipes)
+├── scripts/
+│   └── seed-recipes.ts                           # Fetch 10 healthy recipes per category from Spoonacular
 ├── public/
 │   └── open-graph.png
 ├── drizzle.config.ts
@@ -130,13 +132,21 @@ HUGGING_FACE_API_KEY=
 
 # Ollama (LLM)
 OLLAMA_API_KEY=
+
+# Spoonacular (recipes)
+SPOONACULAR_API_KEY=
 ```
 
 ### Database
 
 ```bash
-bunx drizzle-kit generate
-bunx drizzle-kit migrate
+bunx drizzle-kit push
+```
+
+### Seed recipes
+
+```bash
+bun scripts/seed-recipes.ts
 ```
 
 ### Run

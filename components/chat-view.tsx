@@ -482,7 +482,8 @@ export default function ChatView({ conversationId }: Props) {
 			router.replace('/dashboard');
 		};
 		window.addEventListener('conversation-deleted', onDeleted);
-		return () => window.removeEventListener('conversation-deleted', onDeleted);
+		return () =>
+			window.removeEventListener('conversation-deleted', onDeleted);
 	}, [localConvoId, router]);
 
 	// ─── Load messages ─────────────────────────────────────────────────────
@@ -1075,7 +1076,7 @@ export default function ChatView({ conversationId }: Props) {
 					if (!open) setDrawerSources(null);
 				}}
 			>
-				<DrawerContent className='flex flex-col w-95 sm:max-w-95'>
+				<DrawerContent className='flex flex-col w-95 sm:max-w-95 overflow-hidden'>
 					<div className='flex items-center justify-between px-5 py-4'>
 						<DrawerTitle className='text-base font-semibold text-slate-900 dark:text-white'>
 							{drawerSources?.length} source
@@ -1101,10 +1102,9 @@ export default function ChatView({ conversationId }: Props) {
 						</DrawerHeader>
 					)}
 
-					<ScrollArea className='flex-1'>
+					<ScrollArea className='flex-1 min-h-0'>
 						<ul className='p-4 space-y-3'>
 							{drawerSources?.map((source, i) => (
-								// TODO: fix scroll-area
 								<li key={source.pmid}>
 									<Link
 										href={source.pubmedUrl}

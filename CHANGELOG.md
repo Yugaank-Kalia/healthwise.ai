@@ -2,7 +2,21 @@
 
 ## [Unreleased]
 
-- **Healthy recipes** - recipe suggestions grounded in NIH nutritional research
+- **Biomedical research** _(coming soon)_ - a dedicated research mode letting users go beyond nutrition into broader biomedical topics: pharmacology, disease mechanisms, clinical trials, and more, all grounded in NIH/PubMed literature.
+
+### Added
+
+- **Recipes page** - browse healthy recipes across Meat, Vegan, and Vegetarian categories, populated from the Spoonacular API. Three-card preview per category with inline "Show all" expansion and 6-per-page pagination.
+- **Recipe detail page** - full recipe at `/recipes/[slug]` with header image, prep time, calories, numbered ingredients list, and step-by-step instructions.
+- **Spoonacular seed script** - `scripts/seed-recipes.ts` fetches 10 healthy recipes per category (sorted by healthiness score) and upserts them into the `recipes` table.
+- **Slug-based recipe IDs** - recipe IDs are derived from the title (e.g. `red-lentil-tofu-pasta`) instead of UUIDs, making URLs human-readable and SEO friendly.
+- **Navbar recipes link** - authenticated users can toggle between Dashboard and Recipes from the navbar.
+
+### Changed
+
+- `recipes.id` changed from UUID to text slug (requires DB table drop and `drizzle-kit push` to migrate).
+- `recipes.instructions` changed from `text` to `text[]` to store steps as a proper array.
+- Category enum values lowercased to `vegan`, `meat`, `vegetarian`.
 
 ## [1.3.0] - 2026-03-21
 

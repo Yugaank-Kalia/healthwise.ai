@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/src/db';
-import { messages, searchQueries } from '@/src/db/schemas/schema';
+import { messages, searchQueries } from '@/src/db/schemas/nutrition-schema';
 import {
 	answerStream,
 	type OrchestratorStreamResult,
-} from '@/lib/pubmed/orchestrator';
-import { extractCitations } from '@/lib/llm';
+} from '@/lib/(nutrition)/orchestrator';
+import { extractCitations } from '@/lib/(nutrition)/llm';
 import { auth } from '@/lib/auth';
 import { and, count, eq, gte } from 'drizzle-orm';
 

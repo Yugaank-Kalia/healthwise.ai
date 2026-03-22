@@ -28,6 +28,18 @@ export default function Navbar() {
 			{!isAuthPage && (
 				<div className='flex items-center gap-3'>
 					<MobileConversationsMenu />
+					{session && (
+						<Link
+							href={
+								pathName === '/recipes'
+									? '/dashboard'
+									: '/recipes'
+							}
+							className='text-sm font-bold tracking-tight text-blue-900 dark:text-blue-300 transition-colors'
+						>
+							{pathName === '/recipes' ? 'Dashboard' : 'Recipes'}
+						</Link>
+					)}
 					<ThemeToggle />
 					{!mounted || isPending ? (
 						<Skeleton className='h-8 w-8 rounded-full' />

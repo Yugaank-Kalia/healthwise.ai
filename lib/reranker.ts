@@ -2,7 +2,7 @@
 // Reranks search results by scoring query-document pairs together
 
 import { InferenceClient } from '@huggingface/inference';
-import type { SearchResult } from '@/lib/pubmed/search';
+import type { SearchResult } from '@/lib/(nutrition)/search';
 
 const HF_TOKEN = process.env.HUGGING_FACE_API_KEY;
 const client = new InferenceClient(HF_TOKEN);

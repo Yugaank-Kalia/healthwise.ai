@@ -1,7 +1,10 @@
 // LLM response generation via Ollama Cloud (Nemotron 3 Super)
 // Produces cited nutrition answers grounded in retrieved NIH research
 
-import type { ContextChunk, PaperReference } from '@/lib/pubmed/orchestrator';
+import type {
+	ContextChunk,
+	PaperReference,
+} from '@/lib/(nutrition)/orchestrator';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 

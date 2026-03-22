@@ -1,5 +1,5 @@
 // Test endpoint: GET /api/search?q=does+vitamin+D+help+with+depression
-import { searchChunks } from '@/lib/pubmed/search';
+import { searchChunks } from '@/lib/(nutrition)/search';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(req: NextRequest) {

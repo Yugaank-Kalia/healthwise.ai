@@ -4,7 +4,7 @@ import {
 	messages,
 	messageFeedback,
 	conversations,
-} from '@/src/db/schemas/schema';
+} from '@/src/db/schemas/nutrition-schema';
 import { auth } from '@/lib/auth';
 import { and, eq } from 'drizzle-orm';
 

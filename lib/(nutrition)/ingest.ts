@@ -5,7 +5,7 @@ import { chunkPaper } from './chunker';
 import { eq, isNull } from 'drizzle-orm';
 import { fetchPMCFullText } from './pmc';
 import type { PubMedPaper } from './pubmed';
-import { nihPapers, nihChunks } from '@/src/db/schemas/schema';
+import { nihPapers, nihChunks } from '@/src/db/schemas/nutrition-schema';
 import { generateEmbeddingsBatched } from './embeddings';
 
 // ─── Types ───────────────────────────────────────────────────────────────────

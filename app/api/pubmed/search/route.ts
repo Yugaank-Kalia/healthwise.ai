@@ -1,7 +1,10 @@
 // app/api/pubmed/search/route.ts
 // Test endpoint: GET /api/pubmed/search?q=omega-3+heart+health
 import { NextRequest, NextResponse } from 'next/server';
-import { searchAndFetchPapers, buildNutritionQuery } from '@/lib/pubmed/pubmed';
+import {
+	searchAndFetchPapers,
+	buildNutritionQuery,
+} from '@/lib/(nutrition)/pubmed';
 
 export async function GET(req: NextRequest) {
 	const query = req.nextUrl.searchParams.get('q');

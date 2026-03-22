@@ -30,7 +30,7 @@ export default function UserButton() {
 
 	async function handleSignOut() {
 		await authClient.signOut();
-		router.push('/sign-in');
+		router.push('/sign-up');
 	}
 
 	return (

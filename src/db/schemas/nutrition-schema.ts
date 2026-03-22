@@ -232,7 +232,29 @@ export const messageFeedbackRelations = relations(
 	}),
 );
 
+// ─── recipes ──────────────────────────────────────────────────────────────────
+
+export const recipes = pgTable('recipes', {
+	id: text('id').primaryKey(),
+	title: text('title').notNull(),
+	description: text('description'),
+	category: text('category', {
+		enum: ['vegan', 'meat', 'vegetarian'],
+	}).notNull(),
+	prepTime: text('prep_time'),
+	calories: text('calories'),
+	ingredients: text('ingredients').array(),
+	instructions: text('instructions').array(),
+	imageUrl: text('image_url'),
+	createdAt: timestamp('created_at', { withTimezone: true })
+		.defaultNow()
+		.notNull(),
+});
+
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+export type InsertRecipe = typeof recipes.$inferInsert;
+export type SelectRecipe = typeof recipes.$inferSelect;
 
 export type InsertNihPaper = typeof nihPapers.$inferInsert;
 export type SelectNihPaper = typeof nihPapers.$inferSelect;

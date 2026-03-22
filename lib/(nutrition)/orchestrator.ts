@@ -6,17 +6,20 @@ import {
 	searchQueries,
 	queryCitations,
 	nihPapers,
-} from '@/src/db/schemas/schema';
+} from '@/src/db/schemas/nutrition-schema';
 import { inArray } from 'drizzle-orm';
-import { ingestPapers } from '@/lib/pubmed/ingest';
-import { generateResponse, generateResponseStream } from '@/lib/llm';
+import { ingestPapers } from '@/lib/(nutrition)/ingest';
+import {
+	generateResponse,
+	generateResponseStream,
+} from '@/lib/(nutrition)/llm';
 import {
 	searchChunksWide,
 	checkCacheCoverage,
 	type SearchResult,
 } from './search';
 import { rerankResults } from '@/lib/reranker';
-import { searchAndFetchPapers, PubMedPaper } from '@/lib/pubmed/pubmed';
+import { searchAndFetchPapers, PubMedPaper } from '@/lib/(nutrition)/pubmed';
 import { isNutritionQuery } from './guard';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -315,7 +318,7 @@ async function prepareContext(
 		const allPapers: PubMedPaper[] = [];
 
 		for (const q of uncachedQueries) {
-			const pubmedQuery = buildPubMedQuery(q);
+			const pubmedQuery = await buildPubMedQuery(q);
 			console.log(pubmedQuery);
 			const papers = await searchAndFetchPapers(pubmedQuery, {
 				maxResults: Math.ceil(
@@ -525,7 +528,7 @@ export async function answerStream(
 
 // ─── Build PubMed query from natural language ────────────────────────────────
 
-function buildPubMedQuery(q: string): string {
+function buildPubMedQueryKeywords(q: string): string {
 	const keywords = q
 		.toLowerCase()
 		.replace(/[?!.,;:'"]/g, '')
@@ -542,6 +545,41 @@ function buildPubMedQuery(q: string): string {
 	return searchTerms.length > 0
 		? `${searchTerms.join(' ')} AND humans[MeSH Terms]`
 		: q;
+}
+
+async function buildPubMedQuery(q: string): Promise<string> {
+	const OLLAMA_BASE_URL = 'https://ollama.com';
+	const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY as string;
+	try {
+		const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${OLLAMA_API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				model: 'gemma3:4b',
+				messages: [
+					{
+						role: 'user',
+						content: `Convert this nutrition/health question into an optimized PubMed search query. Use MeSH terms where possible. Return ONLY the search query string, nothing else.
+
+Question: "${q}"`,
+					},
+				],
+				stream: false,
+				options: { temperature: 0, num_predict: 100 },
+			}),
+		});
+
+		const data = await res.json();
+		const query = data.message?.content?.trim();
+		if (query && query.length > 5) return query;
+	} catch (error) {
+		console.error(error);
+	}
+
+	return buildPubMedQueryKeywords(q);
 }
 
 // ─── Build context from chunks ───────────────────────────────────────────────

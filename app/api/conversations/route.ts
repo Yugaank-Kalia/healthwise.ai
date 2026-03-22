@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/src/db';
-import { conversations } from '@/src/db/schemas/schema';
+import { conversations } from '@/src/db/schemas/nutrition-schema';
 import { auth } from '@/lib/auth';
 import { eq, desc } from 'drizzle-orm';
 
 export async function GET(req: NextRequest) {
 	const session = await auth.api.getSession({ headers: req.headers });
-	if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+	if (!session)
+		return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
 	const rows = await db
 		.select()
@@ -19,7 +20,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
 	const session = await auth.api.getSession({ headers: req.headers });
-	if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+	if (!session)
+		return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
 	const { title } = await req.json();
 

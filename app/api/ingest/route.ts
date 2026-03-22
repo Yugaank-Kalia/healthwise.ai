@@ -2,8 +2,8 @@
 // Searches PubMed → chunks papers → embeds → stores in Supabase
 import { NextRequest, NextResponse } from 'next/server';
 
-import { ingestPapers } from '@/lib/pubmed/ingest';
-import { searchAndFetchPapers } from '@/lib/pubmed/pubmed';
+import { ingestPapers } from '@/lib/(nutrition)/ingest';
+import { searchAndFetchPapers } from '@/lib/(nutrition)/pubmed';
 
 export async function POST(req: NextRequest) {
 	try {

@@ -1,8 +1,8 @@
 // Similarity search over NIH paper chunks using Supabase pgvector
 
 import { db } from '@/src/db';
-import { generateEmbedding } from '@/lib/pubmed/embeddings';
-import { nihChunks, nihPapers } from '@/src/db/schemas/schema';
+import { generateEmbedding } from '@/lib/(nutrition)/embeddings';
+import { nihChunks, nihPapers } from '@/src/db/schemas/nutrition-schema';
 import { cosineDistance, desc, gt, sql, eq, and, isNotNull } from 'drizzle-orm';
 
 // ─── Types ───────────────────────────────────────────────────────────────────

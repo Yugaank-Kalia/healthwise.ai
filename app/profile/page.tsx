@@ -10,7 +10,9 @@ import { authClient } from '@/lib/auth-client';
 const pwSchema = z
 	.object({
 		currentPassword: z.string().min(1, 'Current password is required'),
-		newPassword: z.string().min(8, 'Password must be at least 8 characters'),
+		newPassword: z
+			.string()
+			.min(8, 'Password must be at least 8 characters'),
 		confirmPassword: z.string().min(1, 'Please confirm your password'),
 	})
 	.refine((d) => d.newPassword === d.confirmPassword, {
@@ -110,7 +112,7 @@ export default function ProfilePage() {
 	}
 
 	if (!session) {
-		router.push('/sign-in');
+		router.push('/sign-up');
 		return null;
 	}
 
@@ -136,7 +138,9 @@ export default function ProfilePage() {
 			revokeOtherSessions: true,
 		});
 		if (error) {
-			setPwError('root', { message: error.message ?? 'Failed to change password.' });
+			setPwError('root', {
+				message: error.message ?? 'Failed to change password.',
+			});
 		} else {
 			setPwSuccess(true);
 			resetPw();
@@ -156,7 +160,6 @@ export default function ProfilePage() {
 			router.push('/');
 		}
 	}
-
 
 	return (
 		<div className='flex flex-1 items-start justify-center px-4 py-12 sm:py-20'>
@@ -205,7 +208,10 @@ export default function ProfilePage() {
 				{/* Password */}
 				{hasPassword ? (
 					<Card title='Change password'>
-						<form onSubmit={handlePwSubmit(savePassword)} className='space-y-4'>
+						<form
+							onSubmit={handlePwSubmit(savePassword)}
+							className='space-y-4'
+						>
 							<Field label='Current password'>
 								<Input
 									type='password'
@@ -214,7 +220,9 @@ export default function ProfilePage() {
 									disabled={pwSaving}
 								/>
 								{pwErrors.currentPassword && (
-									<p className='mt-1 text-xs text-red-500'>{pwErrors.currentPassword.message}</p>
+									<p className='mt-1 text-xs text-red-500'>
+										{pwErrors.currentPassword.message}
+									</p>
 								)}
 							</Field>
 							<Field label='New password'>
@@ -225,7 +233,9 @@ export default function ProfilePage() {
 									disabled={pwSaving}
 								/>
 								{pwErrors.newPassword && (
-									<p className='mt-1 text-xs text-red-500'>{pwErrors.newPassword.message}</p>
+									<p className='mt-1 text-xs text-red-500'>
+										{pwErrors.newPassword.message}
+									</p>
 								)}
 							</Field>
 							<Field label='Confirm new password'>
@@ -236,14 +246,20 @@ export default function ProfilePage() {
 									disabled={pwSaving}
 								/>
 								{pwErrors.confirmPassword && (
-									<p className='mt-1 text-xs text-red-500'>{pwErrors.confirmPassword.message}</p>
+									<p className='mt-1 text-xs text-red-500'>
+										{pwErrors.confirmPassword.message}
+									</p>
 								)}
 							</Field>
 							{pwErrors.root && (
-								<p className='text-sm text-red-500'>{pwErrors.root.message}</p>
+								<p className='text-sm text-red-500'>
+									{pwErrors.root.message}
+								</p>
 							)}
 							{pwSuccess && (
-								<p className='text-sm text-green-600 dark:text-green-400'>Password updated.</p>
+								<p className='text-sm text-green-600 dark:text-green-400'>
+									Password updated.
+								</p>
 							)}
 							<button
 								type='submit'
