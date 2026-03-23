@@ -12,8 +12,9 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 4. **Reranking** - a cross-encoder (`BAAI/bge-reranker-base`) rescores all candidate chunks against the query and enforces source diversity (≥4 unique papers) before context is sent to the LLM
 5. **Generation** - an LLM synthesizes an answer from the retrieved chunks, streamed token-by-token via SSE with inline `[PMID]` citations
 6. **Follow-up suggestions** - the LLM generates contextual follow-up questions rendered as clickable chips below the response, letting users explore related topics without having to think of what to ask next
-7. **Persistence** - conversations and messages are stored per-user; in-flight responses survive page reloads - the server continues streaming regardless of client connection and the client resumes polling on reload
-8. **Feedback** - users can rate each response with thumbs up/down; ratings are stored per-message and per-user for quality analysis
+7. **Export to PDF** - a download button exports the full conversation as a formatted A4 PDF with citations, source links, and a disclaimer; generated client-side via `html2pdf.js`
+8. **Persistence** - conversations and messages are stored per-user; in-flight responses survive page reloads - the server continues streaming regardless of client connection and the client resumes polling on reload
+9. **Feedback** - users can rate each response with thumbs up/down; ratings are stored per-message and per-user for quality analysis
 
 ## Tech stack
 
@@ -29,6 +30,7 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 | Embeddings    | HuggingFace - `NeuML/pubmedbert-base-embeddings` (768d) |
 | LLM           | Ollama (configurable model via `QUERY_MODEL`)           |
 | Literature    | NCBI PubMed E-utilities + PubMed Central full text      |
+| PDF export    | html2pdf.js (client-side, dynamic import)               |
 
 ## Project structure
 

@@ -12,7 +12,9 @@ import {
 	Check,
 	ThumbsUp,
 	ThumbsDown,
+	FileDown,
 } from 'lucide-react';
+import { exportToPDF, type ExportMessage } from '@/lib/export-pdf';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
@@ -796,6 +798,17 @@ export default function ChatView({ conversationId }: Props) {
 		}
 	}
 
+	async function handleExport() {
+		const exportMessages: ExportMessage[] = messages
+			.filter((m) => m.status === 'done')
+			.map((m) => ({
+				role: m.role,
+				content: m.content,
+				sources: m.sources,
+			}));
+		await exportToPDF(exportMessages, 'nutrition');
+	}
+
 	// ─── Input boxes ─────────────────────────────────────────────────────
 
 	const inputBox = (
@@ -816,8 +829,17 @@ export default function ChatView({ conversationId }: Props) {
 			>
 				<ArrowUp className='h-4 w-4' />
 			</Button>
-			<div className='absolute bottom-2.5 left-4'>
+			<div className='absolute bottom-2.5 left-4 flex items-center gap-2'>
 				<KeyboardHint />
+				{!isEmpty && (
+					<button
+						onClick={handleExport}
+						title='Export to PDF'
+						className='cursor-pointer text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors'
+					>
+						<FileDown className='h-3.5 w-3.5' />
+					</button>
+				)}
 			</div>
 		</div>
 	);
