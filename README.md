@@ -1,18 +1,19 @@
 # healthwise.ai
 
-Personalized nutrition guidance backed by NIH research. Ask questions about nutrition, diet, and healthy eating - answers are grounded in PubMed literature via a JIT (just in time) RAG pipeline.
+AI-powered health and biomedical research assistant. Ask questions about nutrition, diet, and broader biomedical topics — answers are grounded in PubMed literature via a JIT (just in time) RAG pipeline, with follow-up suggestions to guide deeper exploration.
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## How it works
 
-1. **Query** - user submits a nutrition question
+1. **Query** - user submits a nutrition or biomedical question
 2. **Cache check** - vector similarity search over previously ingested PubMed chunks
 3. **Cache miss** - relevant papers are fetched from PubMed, chunked, embedded, and stored; the UI shows "Indexing papers…" during this step
 4. **Reranking** - a cross-encoder (`BAAI/bge-reranker-base`) rescores all candidate chunks against the query and enforces source diversity (≥4 unique papers) before context is sent to the LLM
 5. **Generation** - an LLM synthesizes an answer from the retrieved chunks, streamed token-by-token via SSE with inline `[PMID]` citations
-6. **Persistence** - conversations and messages are stored per-user; in-flight responses survive page reloads - the server continues streaming regardless of client connection and the client resumes polling on reload
-7. **Feedback** - users can rate each response with thumbs up/down; ratings are stored per-message and per-user for quality analysis
+6. **Follow-up suggestions** - the LLM generates contextual follow-up questions rendered as clickable chips below the response, letting users explore related topics without having to think of what to ask next
+7. **Persistence** - conversations and messages are stored per-user; in-flight responses survive page reloads - the server continues streaming regardless of client connection and the client resumes polling on reload
+8. **Feedback** - users can rate each response with thumbs up/down; ratings are stored per-message and per-user for quality analysis
 
 ## Tech stack
 
@@ -49,35 +50,50 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 │   │   ├── ingest/route.ts                       # Manual ingest trigger
 │   │   ├── pubmed/search/route.ts                # PubMed search proxy
 │   │   └── search/route.ts                       # Vector similarity search
-│   ├── dashboard/
-│   │   ├── [conversationId]/page.tsx             # Conversation view
-│   │   ├── layout.tsx                            # Sidebar + main layout
-│   │   └── page.tsx                              # Empty chat state
+│   ├── dashboard/                                # Nutrition chat
+│   │   ├── [conversationId]/page.tsx
+│   │   ├── layout.tsx
+│   │   └── page.tsx
+│   ├── research/                                 # Biomedical research chat
+│   │   ├── [conversationId]/page.tsx
+│   │   ├── layout.tsx
+│   │   └── page.tsx
+│   ├── recipes/                                  # Recipe browser
+│   │   ├── [recipeId]/page.tsx
+│   │   └── page.tsx
 │   ├── globals.css
 │   ├── layout.tsx                                # Root layout, OG metadata
 │   └── page.tsx                                  # Marketing landing page
 ├── components/
 │   ├── ui/                                       # shadcn/ui primitives
-│   ├── chat-sidebar.tsx                          # Conversation list with rename/delete
-│   ├── chat-view.tsx                             # Chat interface - SSE streaming, polling fallback, sources drawer
+│   ├── chat-sidebar.tsx                          # Nutrition conversation list with rename/delete
+│   ├── chat-view.tsx                             # Nutrition chat interface - SSE streaming, follow-up chips, sources drawer
+│   ├── research-sidebar.tsx                      # Research conversation list
+│   ├── research-chat-view.tsx                    # Biomedical research chat interface - follow-up chips, evidence levels
 │   ├── google-button.tsx
 │   ├── navbar.tsx
 │   ├── theme-toggle.tsx
 │   └── user-button.tsx
 ├── lib/
-│   ├── pubmed/
-│   │   ├── orchestrator.ts                       # RAG pipeline entry point
+│   ├── pubmed/                                   # Shared PubMed utilities
 │   │   ├── pubmed.ts                             # PubMed E-utilities client
 │   │   ├── ingest.ts                             # Paper → chunk → embed → store
-│   │   ├── search.ts                             # pgvector similarity search (includes searchChunksWide)
+│   │   ├── search.ts                             # pgvector similarity search
 │   │   ├── embeddings.ts                         # HuggingFace embedding client
 │   │   ├── chunker.ts                            # Text chunking logic
-│   │   ├── pmc.ts                                # PubMed Central full-text fetcher
-│   │   └── guard.ts                              # Topic relevance guard
-│   ├── reranker.ts                               # Cross-encoder reranker with diversity enforcement
+│   │   └── pmc.ts                                # PubMed Central full-text fetcher
+│   ├── (nutrition)/                              # Nutrition RAG pipeline
+│   │   ├── orchestrator.ts                       # Pipeline entry point
+│   │   ├── guard.ts                              # Topic relevance classifier
+│   │   ├── llm.ts                                # LLM prompts + streaming; outputs follow-up suggestions
+│   │   └── search.ts                             # Nutrition-scoped vector search
+│   ├── (research)/                               # Biomedical research RAG pipeline
+│   │   ├── orchestrator.ts                       # Pipeline entry point
+│   │   ├── guard.ts                              # Biomedical topic classifier
+│   │   └── llm.ts                                # LLM prompts + streaming; outputs follow-up suggestions
+│   ├── reranker.ts                               # Shared cross-encoder reranker with diversity enforcement
 │   ├── auth-client.ts
 │   ├── auth.ts                                   # better-auth server config
-│   ├── llm.ts                                    # LLM response generation
 │   └── utils.ts
 ├── providers/
 │   └── theme-provider.tsx

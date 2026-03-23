@@ -59,21 +59,20 @@ interface Props {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const PLACEHOLDERS = [
-	'What foods are high in omega-3 fatty acids?',
-	'How does sugar affect inflammation?',
-	'Best sources of plant-based protein?',
-	'Is intermittent fasting effective?',
-	'How much fiber should I eat per day?',
-	'What vitamins help with energy levels?',
+	'What are the mechanisms of mRNA vaccine immunity?',
+	'Latest findings on CRISPR off-target effects?',
+	'How do checkpoint inhibitors work in cancer?',
+	"What biomarkers predict Alzheimer's progression?",
+	'Mechanisms of antibiotic resistance in MRSA?',
 ];
 
 const SUGGESTIONS = [
-	'Best foods for gut health?',
-	'How much vitamin D do I need?',
-	'Foods that fight inflammation',
-	'Is intermittent fasting effective?',
-	'High protein plant-based foods?',
-	'Benefits of omega-3 fatty acids?',
+	'CRISPR gene therapy safety',
+	'CAR-T cell therapy mechanisms',
+	'mRNA vaccine immune response',
+	"Alzheimer's biomarkers",
+	'Antibiotic resistance mechanisms',
+	'Gut-brain axis in depression',
 ];
 
 // ─── Formatting helpers ──────────────────────────────────────────────────────
@@ -199,11 +198,7 @@ function renderInline(text: string, sources?: Source[] | null) {
 function renderContent(text: string, sources?: Source[] | null) {
 	return text
 		.split('\n')
-		.filter(
-			(line) =>
-				!line.trim().startsWith('→') &&
-				line.trim() !== '**Related Nutrition Topics**',
-		)
+		.filter((line) => !line.trim().startsWith('→') && line.trim() !== '**Related Research Directions**')
 		.map((line, i) => {
 			const heading = line.match(/^\*{1,2}([^*]+)\*{1,2}$/);
 			if (heading)
@@ -374,7 +369,7 @@ function KeyboardHint() {
 
 // ─── Main component ──────────────────────────────────────────────────────────
 
-export default function ChatView({ conversationId }: Props) {
+export default function ResearchChatView({ conversationId }: Props) {
 	const router = useRouter();
 	const [localConvoId, setLocalConvoId] = useState(conversationId);
 	const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -495,7 +490,7 @@ export default function ChatView({ conversationId }: Props) {
 			setMessages([]);
 			setLocalConvoId(undefined);
 			setFetchingMessages(false);
-			router.replace('/dashboard');
+			router.replace('/research');
 		};
 		window.addEventListener('conversation-deleted', onDeleted);
 		return () =>
@@ -526,8 +521,6 @@ export default function ChatView({ conversationId }: Props) {
 				if (!rows || !Array.isArray(rows)) return;
 				const loaded = rows.map((m) => {
 					const raw = (m.status as MessageStatus) ?? 'done';
-					// Streaming interrupted mid-way: has content but stream never
-					// sent a done event. Treat as done so polling never starts.
 					const status =
 						raw === 'streaming' && m.content ? 'done' : raw;
 					return {
@@ -541,7 +534,6 @@ export default function ChatView({ conversationId }: Props) {
 				});
 				setMessages(loaded);
 
-				// Only poll for messages with no output yet.
 				const inProgress = loaded.filter(
 					(m) => m.status === 'pending' || m.status === 'indexing',
 				);
@@ -603,7 +595,7 @@ export default function ChatView({ conversationId }: Props) {
 			updateMessage(assistantId, patch);
 
 		try {
-			const res = await fetch('/api/ask', {
+			const res = await fetch('/api/research', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
@@ -721,12 +713,12 @@ export default function ChatView({ conversationId }: Props) {
 				const res = await fetch('/api/conversations', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ title }),
+					body: JSON.stringify({ title, type: 'research' }),
 				});
 				const convo = await res.json();
 				convoId = convo.id as string;
 				setLocalConvoId(convoId);
-				window.history.pushState(null, '', `/dashboard/${convoId}`);
+				window.history.pushState(null, '', `/research/${convoId}`);
 				window.dispatchEvent(new CustomEvent('sidebar-refresh'));
 			} else if (isEmpty) {
 				fetch(`/api/conversations/${convoId}`, {
@@ -805,7 +797,7 @@ export default function ChatView({ conversationId }: Props) {
 				value={input}
 				onChange={(e) => setInput(e.target.value)}
 				onKeyDown={handleKeyDown}
-				placeholder='Ask about nutrition, diet, or healthy eating…'
+				placeholder='Ask about biomedical research…'
 				className='flex-1 resize-none border-none shadow-none bg-transparent dark:bg-transparent text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus-visible:ring-0 max-h-40 p-0'
 			/>
 			<Button
@@ -870,10 +862,10 @@ export default function ChatView({ conversationId }: Props) {
 					<div className='flex-1 flex flex-col items-center justify-center gap-6 px-4'>
 						<div className='text-center'>
 							<h2 className='text-3xl font-bold text-slate-900 dark:text-white'>
-								What do you want to know?
+								What do you want to research?
 							</h2>
 							<p className='text-sm text-slate-500 dark:text-slate-400 mt-2'>
-								Nutrition guidance backed by NIH research
+								Biomedical research backed by PubMed
 							</p>
 						</div>
 						<div className='max-w-2xl w-full'>
@@ -894,11 +886,11 @@ export default function ChatView({ conversationId }: Props) {
 				) : isEmpty ? (
 					<div className='flex-1 flex flex-col items-center justify-center gap-3 px-4 text-center'>
 						<h2 className='text-2xl font-semibold text-slate-900 dark:text-white'>
-							What would you like to know?
+							What would you like to research?
 						</h2>
 						<p className='text-sm text-slate-500 dark:text-slate-400 max-w-xs'>
-							Ask me anything about nutrition, diet, or healthy
-							eating - backed by NIH research.
+							Ask me anything about biomedical research - backed
+							by PubMed.
 						</p>
 					</div>
 				) : (
@@ -950,7 +942,6 @@ export default function ChatView({ conversationId }: Props) {
 														msg.sources,
 													)}
 												</div>
-
 												{isAssistant &&
 												isDone &&
 												msg.sources?.length ? (
@@ -964,9 +955,10 @@ export default function ChatView({ conversationId }: Props) {
 
 												{isAssistant && isDone && (
 													<p className='mt-3 text-xs text-slate-900 dark:text-white font-medium'>
-														Healthwise is AI and can
-														make mistakes. Please
-														proceed with caution.
+														🔬 Healthwise is AI and
+														can make mistakes.
+														Please proceed with
+														caution.
 													</p>
 												)}
 											</div>
@@ -1068,8 +1060,8 @@ export default function ChatView({ conversationId }: Props) {
 												return followUps.length > 0 ? (
 													<div className='flex flex-col gap-2 max-w-[80%] pt-8'>
 														<p className='text-xs font-semibold text-slate-500 dark:text-slate-400 px-1'>
-															Related Nutrition
-															Topics
+															Related Research
+															Directions
 														</p>
 														{followUps.map((q) => (
 															<button

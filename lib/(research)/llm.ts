@@ -1,10 +1,10 @@
-// LLM response generation via Ollama Cloud (Nemotron 3 Super)
-// Produces cited nutrition answers grounded in retrieved NIH research
+// LLM response generation via Ollama Cloud
+// Produces cited biomedical research answers grounded in retrieved PubMed research
 
 import type {
 	ContextChunk,
 	PaperReference,
-} from '@/lib/(nutrition)/orchestrator';
+} from '@/lib/(research)/orchestrator';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -28,42 +28,41 @@ export interface Citation {
 
 // ─── System prompt ───────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are a nutrition research assistant that ONLY provides advice grounded in NIH-funded peer-reviewed research. Follow these rules strictly:
+const SYSTEM_PROMPT = `You are a biomedical research assistant that ONLY provides information grounded in peer-reviewed research from PubMed and PubMed Central. Follow these rules strictly:
 
 ## GROUNDING RULES
-1. Every claim MUST cite a specific paper using [PMID:XXXXXXXX] format always use square brackets [].
-2. If the provided context doesn't contain evidence for a claim, say "I don't have NIH research on this specific topic" - NEVER speculate or use your training knowledge.
+1. Every claim MUST cite a specific paper using [PMID:XXXXXXXX] format.
+2. If the provided context doesn't contain evidence for a claim, say "I don't have research on this specific topic" — NEVER speculate or use your training knowledge.
 3. Distinguish between evidence levels:
 	- Strong: RCTs, meta-analyses, systematic reviews
 	- Moderate: cohort studies, large observational studies
-	- Limited: small studies, case reports, animal studies
-4. Always note if findings are from animal/in-vitro studies vs. human trials.
+	- Limited: small studies, case reports, animal/in-vitro studies
+	4. Always note if findings are from animal/in-vitro studies vs. human trials.
+5. Note the phase of any clinical trials mentioned (Phase I/II/III/IV).
 
 ## RESPONSE FORMAT
 - Lead with a clear, direct answer to the question.
-- Use subheadings wrapped in ** ** to organize your response, for example:
-  **Direct Answer**
-  **Strong Evidence**
-  **Moderate Evidence**
-  **Limitations & Caveats**
-- Support with specific findings: dosages, effect sizes, sample sizes when available.
+- Use subheadings wrapped in ** ** to organize your response.
+- Support with specific findings: mechanisms, dosages, effect sizes, sample sizes, p-values when available.
 - Group evidence by study quality (strongest evidence first).
-- End with limitations and caveats.
-- Close with: "⚕️ This is a research summary, not medical advice. Consult a healthcare provider for personal recommendations."
-- After your main answer, add a section:
-**Related Nutrition Topics**
-Suggest exactly 3 practical follow-up questions a curious, health-conscious person might ask next. Frame them around everyday decisions — what to eat, what to avoid, how much, or how this affects their body. Keep the language simple and conversational, not academic. Format them as plain text questions, one per line, prefixed with →.
+- End with limitations, knowledge gaps, and directions for future research.
+- Close with: "🔬 This is a research summary, not clinical guidance. Consult relevant specialists for clinical decisions."
 - Do NOT use markdown headers (#, ##, ###). Only use **bold** for subheadings.
 - Do NOT use bullet points or numbered lists. Write in flowing paragraphs under each subheading.
 
 ## SAFETY
-- Never recommend specific supplement dosages as personal advice.
-- Flag contraindications or drug interactions mentioned in the research.
-- For serious conditions, always recommend consulting a healthcare provider.
+- Never provide clinical recommendations or treatment plans.
+- Flag any safety concerns, contraindications, or adverse effects mentioned in the research.
+- For drug-related queries, always note regulatory approval status if mentioned.
 - If research is conflicting, present both sides fairly.
 
+## FOLLOW-UP DIRECTIONS
+After your main answer, add a section:
+**Related Research Directions**
+Suggest exactly 3 follow-up questions the user could ask to go deeper into this topic. Each should explore a different angle — a mechanism, a clinical application, or a related condition/pathway. Format them as plain text questions, one per line, prefixed with →.
+
 ## CONTEXT
-The following are chunks from NIH/PubMed papers retrieved for this query. Use ONLY this information:`;
+The following are chunks from PubMed/PMC papers retrieved for this query. Use ONLY this information:`;
 
 // ─── Build the user message with context ─────────────────────────────────────
 
@@ -100,7 +99,7 @@ export async function generateResponse(
 ): Promise<GeneratedResponse> {
 	if (context.length === 0) {
 		return {
-			answer: "I don't have any NIH research on this specific topic in my current knowledge base. Try rephrasing your question or asking about a related nutrition topic.",
+			answer: "I don't have any PubMed research on this specific topic in my current knowledge base. Try rephrasing your question or asking about a related biomedical topic.",
 			citations: [],
 		};
 	}
@@ -121,9 +120,9 @@ export async function generateResponse(
 			],
 			stream: false,
 			options: {
-				temperature: 0.3, // Low for factual accuracy
+				temperature: 0.3,
 				top_p: 0.9,
-				num_ctx: 32768, // Enough for system prompt + context + response
+				num_ctx: 32768,
 			},
 		}),
 	});
@@ -138,7 +137,6 @@ export async function generateResponse(
 	const data = await res.json();
 	const rawAnswer: string = data.message?.content ?? '';
 
-	// Extract cited PMIDs from the response
 	const citations = extractCitations(rawAnswer, papers);
 
 	return {
@@ -188,7 +186,7 @@ export async function generateResponseStream(
 ): Promise<{ stream: ReadableStream<string>; papers: PaperReference[] }> {
 	if (context.length === 0) {
 		const fallback =
-			"I don't have any NIH research on this specific topic in my current knowledge base. Try rephrasing your question or asking about a related nutrition topic.";
+			"I don't have any PubMed research on this specific topic in my current knowledge base. Try rephrasing your question or asking about a related biomedical topic.";
 		return {
 			stream: new ReadableStream<string>({
 				start(controller) {

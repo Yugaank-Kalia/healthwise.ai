@@ -105,6 +105,7 @@ export const conversations = pgTable(
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		title: text('title').notNull(),
+		type: text('type').default('nutrition').notNull(),
 		createdAt: timestamp('created_at', { withTimezone: true })
 			.defaultNow()
 			.notNull(),
@@ -232,6 +233,36 @@ export const messageFeedbackRelations = relations(
 	}),
 );
 
+// ─── research_search_queries ──────────────────────────────────────────────────
+
+export const researchSearchQueries = pgTable('research_search_queries', {
+	id: uuid('id').primaryKey().defaultRandom(),
+	userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
+	query: text('query').notNull(),
+	pubmedQuery: text('pubmed_query'),
+	meshTerms: text('mesh_terms').array(),
+	cacheHit: boolean('cache_hit').default(false).notNull(),
+	chunksUsed: integer('chunks_used'),
+	responseTime: integer('response_time'),
+	createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ─── research_query_citations ─────────────────────────────────────────────────
+
+export const researchQueryCitations = pgTable(
+	'research_query_citations',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		queryId: uuid('query_id').notNull().references(() => researchSearchQueries.id, { onDelete: 'cascade' }),
+		paperId: uuid('paper_id').notNull().references(() => nihPapers.id, { onDelete: 'cascade' }),
+		relevanceScore: real('relevance_score'),
+		createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+	},
+	(table) => [
+		uniqueIndex('research_query_citations_unique').on(table.queryId, table.paperId),
+	],
+);
+
 // ─── recipes ──────────────────────────────────────────────────────────────────
 
 export const recipes = pgTable('recipes', {
@@ -276,3 +307,8 @@ export type SelectMessage = typeof messages.$inferSelect;
 
 export type InsertConversation = typeof conversations.$inferInsert;
 export type SelectConversation = typeof conversations.$inferSelect;
+
+export type InsertResearchSearchQuery = typeof researchSearchQueries.$inferInsert;
+export type SelectResearchSearchQuery = typeof researchSearchQueries.$inferSelect;
+export type InsertResearchQueryCitation = typeof researchQueryCitations.$inferInsert;
+export type SelectResearchQueryCitation = typeof researchQueryCitations.$inferSelect;

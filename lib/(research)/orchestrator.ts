@@ -1,0 +1,696 @@
+// The brain of the biomedical RAG pipeline.
+// Single entry point: answer(query) → cited response with sources
+
+import { db } from '@/src/db';
+import {
+	researchSearchQueries,
+	researchQueryCitations,
+	nihPapers,
+} from '@/src/db/schemas/nutrition-schema';
+import { inArray } from 'drizzle-orm';
+import { ingestPapers } from '@/lib/(nutrition)/ingest';
+import {
+	generateResponse,
+	generateResponseStream,
+} from '@/lib/(research)/llm';
+import {
+	searchChunksWide,
+	checkCacheCoverage,
+	type SearchResult,
+} from './search';
+import { rerankResults } from '@/lib/reranker';
+import { searchAndFetchPapers, PubMedPaper } from '@/lib/(nutrition)/pubmed';
+import { isResearchQuery } from './guard';
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+export interface OrchestratorResponse {
+	query: string;
+	answer: string;
+	citations: {
+		pmid: string;
+		title: string;
+		year: number | null;
+		doi: string | null;
+	}[];
+	cacheHit: boolean;
+	papersUsed: PaperReference[];
+	meta: {
+		chunksRetrieved: number;
+		papersSearched: number;
+		papersIngested: number;
+		responseTimeMs: number;
+	};
+}
+
+export interface ContextChunk {
+	content: string;
+	section: string | null;
+	similarity: number;
+	pmid: string;
+	paperTitle: string;
+	year: number | null;
+}
+
+export interface PaperReference {
+	pmid: string;
+	title: string;
+	authors: string | null;
+	year: number | null;
+	doi: string | null;
+	publicationType: string | null;
+	relevanceScore: number;
+}
+
+export interface OrchestratorOptions {
+	userId?: string;
+	cacheThreshold?: number;
+	minCacheChunks?: number;
+	topK?: number;
+	maxPubMedResults?: number;
+	onProgress?: (stage: 'fetching' | 'indexing') => void;
+}
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const STOP_WORDS = new Set([
+	'is',
+	'are',
+	'was',
+	'were',
+	'do',
+	'does',
+	'did',
+	'can',
+	'could',
+	'should',
+	'would',
+	'will',
+	'shall',
+	'may',
+	'might',
+	'must',
+	'a',
+	'an',
+	'the',
+	'and',
+	'or',
+	'but',
+	'not',
+	'no',
+	'nor',
+	'for',
+	'to',
+	'of',
+	'in',
+	'on',
+	'at',
+	'by',
+	'with',
+	'from',
+	'it',
+	'its',
+	'this',
+	'that',
+	'these',
+	'those',
+	'i',
+	'me',
+	'my',
+	'you',
+	'your',
+	'we',
+	'our',
+	'they',
+	'them',
+	'what',
+	'which',
+	'who',
+	'whom',
+	'how',
+	'why',
+	'when',
+	'where',
+	'bad',
+	'good',
+	'best',
+	'worst',
+	'help',
+	'really',
+	'very',
+	'much',
+	'many',
+	'some',
+	'any',
+	'every',
+	'each',
+	'need',
+	'per',
+	'day',
+	'make',
+	'take',
+	'get',
+	'has',
+	'have',
+	'had',
+	'been',
+	'being',
+	'about',
+	'more',
+	'most',
+	'other',
+	'into',
+]);
+
+const MEDICAL_TERMS = new Set([
+	'protein',
+	'receptor',
+	'gene',
+	'mutation',
+	'pathway',
+	'inhibitor',
+	'antibody',
+	'cytokine',
+	'enzyme',
+	'kinase',
+	'phosphorylation',
+	'transcription',
+	'expression',
+	'apoptosis',
+	'signaling',
+	'oncogene',
+	'tumor',
+	'cancer',
+	'carcinoma',
+	'lymphoma',
+	'leukemia',
+	'metastasis',
+	'immunotherapy',
+	'checkpoint',
+	'vaccine',
+	'mrna',
+	'crispr',
+	'genome',
+	'epigenetic',
+	'microbiome',
+	'neurodegeneration',
+	'alzheimer',
+	'parkinson',
+	'synapse',
+	'neurotransmitter',
+	'dopamine',
+	'serotonin',
+	'cortisol',
+	'insulin',
+	'glucose',
+	'metabolism',
+	'mitochondria',
+	'oxidative',
+	'inflammation',
+	'cytokine',
+	'interleukin',
+	'interferon',
+	'autoimmune',
+	'antigen',
+	'clinical',
+	'trial',
+	'placebo',
+	'randomized',
+	'cohort',
+	'pharmacokinetics',
+	'biomarker',
+	'prognosis',
+	'efficacy',
+	'toxicity',
+	'dosage',
+	'therapeutic',
+	'mechanism',
+	'pathogenesis',
+	'etiology',
+	'epidemiology',
+	'prevalence',
+	'incidence',
+	'mortality',
+	'morbidity',
+	'diagnosis',
+	'treatment',
+	'drug',
+	'antibiotic',
+	'resistance',
+	'mrsa',
+	'virus',
+	'bacterial',
+	'fungal',
+	'infection',
+	'immunity',
+	'stem',
+	'cell',
+	'differentiation',
+	'proliferation',
+]);
+
+// ─── Shared context preparation (steps 0-7) ──────────────────────────────────
+
+interface PreparedContext {
+	chunks: SearchResult[];
+	context: ContextChunk[];
+	papersUsed: PaperReference[];
+	cacheHit: boolean;
+	papersSearched: number;
+	papersIngested: number;
+	startTime: number;
+	earlyReturn?: OrchestratorResponse;
+}
+
+async function prepareContext(
+	query: string,
+	options: OrchestratorOptions,
+): Promise<PreparedContext> {
+	const {
+		cacheThreshold = 0.55,
+		minCacheChunks = 4,
+		topK = 6,
+		maxPubMedResults = 15,
+	} = options;
+
+	const startTime = Date.now();
+	let papersSearched = 0;
+	let papersIngested = 0;
+
+	// ── Step 0: Topic check ──────────────────────────────────────────────
+
+	const onTopic = await isResearchQuery(query);
+
+	if (!onTopic) {
+		return {
+			chunks: [],
+			context: [],
+			papersUsed: [],
+			cacheHit: false,
+			papersSearched: 0,
+			papersIngested: 0,
+			startTime,
+			earlyReturn: {
+				query,
+				answer: 'I can only answer questions about biomedical research, including pharmacology, disease mechanisms, clinical trials, genomics, neuroscience, immunology, and related scientific topics. Try asking about a specific disease, drug, biological pathway, or research area.',
+				citations: [],
+				cacheHit: false,
+				papersUsed: [],
+				meta: {
+					chunksRetrieved: 0,
+					papersSearched: 0,
+					papersIngested: 0,
+					responseTimeMs: Date.now() - startTime,
+				},
+			},
+		};
+	}
+
+	// ── Step 1: Split multi-question queries ─────────────────────────────
+
+	const subQueries = query
+		.split(/\d+\.\s+|\n\n|;/)
+		.map((q) => q.replace(/^\d+[\.\)]\s*/, '').trim())
+		.filter((q) => q.length > 10);
+
+	const queries = subQueries.length > 1 ? subQueries : [query];
+
+	// ── Step 2: Check cache per sub-query ────────────────────────────────
+
+	let cachedChunks: SearchResult[] = [];
+	const uncachedQueries: string[] = [];
+
+	for (const q of queries) {
+		const cache = await checkCacheCoverage(q, {
+			minChunks: minCacheChunks,
+			threshold: cacheThreshold,
+		});
+
+		if (cache.sufficient) {
+			const wideResults = await searchChunksWide(q, {
+				topK: 20,
+				threshold: 0.3,
+			});
+			const reranked = await rerankResults(q, wideResults, topK);
+			cachedChunks.push(...reranked);
+		} else {
+			uncachedQueries.push(q);
+		}
+	}
+	const cacheHit = uncachedQueries.length === 0;
+	// ── Step 3: Fetch from PubMed for uncached queries only ──────────────
+
+	if (uncachedQueries.length > 0) {
+		options.onProgress?.('fetching');
+
+		const allPapers: PubMedPaper[] = [];
+
+		for (const q of uncachedQueries) {
+			const pubmedQuery = await buildPubMedQuery(q);
+			console.log(pubmedQuery);
+			const papers = await searchAndFetchPapers(pubmedQuery, {
+				maxResults: Math.ceil(
+					maxPubMedResults / uncachedQueries.length,
+				),
+				sort: 'relevance',
+			});
+			allPapers.push(...papers);
+		}
+
+		papersSearched = allPapers.length;
+
+		// ── Step 4: Ingest new papers ────────────────────────────────────
+
+		if (allPapers.length > 0) {
+			options.onProgress?.('indexing');
+			const ingestResult = await ingestPapers(allPapers);
+			papersIngested = ingestResult.papersStored;
+		}
+
+		// ── Step 5: Search again for uncached queries with fresh data ────
+
+		for (const q of uncachedQueries) {
+			const wideResults = await searchChunksWide(q, {
+				topK: 20,
+				threshold: 0.3,
+			});
+			const reranked = await rerankResults(q, wideResults, topK);
+			cachedChunks.push(...reranked);
+		}
+	}
+
+	// ── Step 6: Deduplicate chunks ───────────────────────────────────────
+
+	const seenChunkIds = new Set<string>();
+	const chunks = cachedChunks
+		.filter((c) => {
+			if (seenChunkIds.has(c.chunkId)) return false;
+			seenChunkIds.add(c.chunkId);
+			return true;
+		})
+		.slice(0, topK);
+
+	// ── Step 7: Build context and paper references ───────────────────────
+
+	if (chunks.length === 0) {
+		return {
+			chunks: [],
+			context: [],
+			papersUsed: [],
+			cacheHit: false,
+			papersSearched,
+			papersIngested,
+			startTime,
+			earlyReturn: {
+				query,
+				answer: "I wasn't able to find relevant biomedical research on that topic in the PubMed database. This may be a very niche area or the query may need to be rephrased. Try asking with different keywords or a more specific scientific term.",
+				citations: [],
+				cacheHit: false,
+				papersUsed: [],
+				meta: {
+					chunksRetrieved: 0,
+					papersSearched,
+					papersIngested,
+					responseTimeMs: Date.now() - startTime,
+				},
+			},
+		};
+	}
+
+	return {
+		chunks,
+		context: buildContext(chunks),
+		papersUsed: deduplicatePapers(chunks),
+		cacheHit,
+		papersSearched,
+		papersIngested,
+		startTime,
+	};
+}
+
+// ─── Non-streaming entry point ────────────────────────────────────────────────
+
+export async function answer(
+	query: string,
+	options: OrchestratorOptions = {},
+): Promise<OrchestratorResponse> {
+	const prepared = await prepareContext(query, options);
+
+	if (prepared.earlyReturn) return prepared.earlyReturn;
+
+	const {
+		chunks,
+		context,
+		papersUsed,
+		cacheHit,
+		papersSearched,
+		papersIngested,
+		startTime,
+	} = prepared;
+
+	const llmResponse = await generateResponse(query, context, papersUsed);
+	const responseTimeMs = Date.now() - startTime;
+
+	await logQuery({
+		userId: options.userId,
+		query,
+		cacheHit,
+		chunksUsed: chunks.length,
+		responseTimeMs,
+		papersUsed,
+	}).catch((err) => console.error('Failed to log query analytics:', err));
+
+	return {
+		query,
+		answer: llmResponse.answer,
+		citations: llmResponse.citations,
+		cacheHit,
+		papersUsed,
+		meta: {
+			chunksRetrieved: chunks.length,
+			papersSearched,
+			papersIngested,
+			responseTimeMs,
+		},
+	};
+}
+
+// ─── Streaming entry point ────────────────────────────────────────────────────
+
+export interface OrchestratorStreamResult {
+	stream: ReadableStream<string>;
+	papersUsed: PaperReference[];
+	cacheHit: boolean;
+	meta: {
+		chunksRetrieved: number;
+		papersSearched: number;
+		papersIngested: number;
+		startTime: number;
+	};
+	logAnalytics: (responseTimeMs: number) => Promise<void>;
+}
+
+export async function answerStream(
+	query: string,
+	options: OrchestratorOptions = {},
+): Promise<OrchestratorStreamResult> {
+	const prepared = await prepareContext(query, options);
+
+	if (prepared.earlyReturn) {
+		const msg = prepared.earlyReturn.answer;
+		return {
+			stream: new ReadableStream<string>({
+				start(controller) {
+					controller.enqueue(msg);
+					controller.close();
+				},
+			}),
+			papersUsed: [],
+			cacheHit: false,
+			meta: {
+				chunksRetrieved: 0,
+				papersSearched: prepared.papersSearched,
+				papersIngested: prepared.papersIngested,
+				startTime: prepared.startTime,
+			},
+			logAnalytics: async () => {},
+		};
+	}
+
+	const {
+		chunks,
+		context,
+		papersUsed,
+		cacheHit,
+		papersSearched,
+		papersIngested,
+		startTime,
+	} = prepared;
+
+	const { stream } = await generateResponseStream(query, context, papersUsed);
+
+	return {
+		stream,
+		papersUsed,
+		cacheHit,
+		meta: {
+			chunksRetrieved: chunks.length,
+			papersSearched,
+			papersIngested,
+			startTime,
+		},
+		logAnalytics: async (responseTimeMs: number) => {
+			await logQuery({
+				userId: options.userId,
+				query,
+				cacheHit,
+				chunksUsed: chunks.length,
+				responseTimeMs,
+				papersUsed,
+			}).catch((err) =>
+				console.error('Failed to log query analytics:', err),
+			);
+		},
+	};
+}
+
+// ─── Build PubMed query from natural language ────────────────────────────────
+
+function buildPubMedQueryKeywords(q: string): string {
+	const keywords = q
+		.toLowerCase()
+		.replace(/[?!.,;:'"]/g, '')
+		.split(/\s+/)
+		.filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+
+	const meaningful = keywords.filter(
+		(w) => MEDICAL_TERMS.has(w) || w.length > 5,
+	);
+
+	const searchTerms =
+		meaningful.length > 0 ? meaningful.slice(0, 4) : keywords.slice(0, 3);
+
+	return searchTerms.length > 0 ? searchTerms.join(' ') : q;
+}
+
+async function buildPubMedQuery(q: string): Promise<string> {
+	const OLLAMA_BASE_URL = 'https://ollama.com';
+	const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY as string;
+	try {
+		const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${OLLAMA_API_KEY}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				model: 'gemma3:4b',
+				messages: [
+					{
+						role: 'user',
+						content: `Convert this biomedical research question into an optimized PubMed search query. Use MeSH terms where possible. Return ONLY the search query string, nothing else.
+
+Question: "${q}"`,
+					},
+				],
+				stream: false,
+				options: { temperature: 0, num_predict: 100 },
+			}),
+		});
+
+		const data = await res.json();
+		const query = data.message?.content?.trim();
+		if (query && query.length > 5) return query;
+	} catch (error) {
+		console.error(error);
+	}
+
+	return buildPubMedQueryKeywords(q);
+}
+
+// ─── Build context from chunks ───────────────────────────────────────────────
+
+function buildContext(chunks: SearchResult[]): ContextChunk[] {
+	return chunks.map((chunk) => ({
+		content: chunk.content,
+		section: chunk.section,
+		similarity: chunk.similarity,
+		pmid: chunk.paper.pmid,
+		paperTitle: chunk.paper.title,
+		year: chunk.paper.year,
+	}));
+}
+
+// ─── Deduplicate papers from chunks ──────────────────────────────────────────
+
+function deduplicatePapers(chunks: SearchResult[]): PaperReference[] {
+	const paperMap = new Map<string, PaperReference>();
+
+	for (const chunk of chunks) {
+		const existing = paperMap.get(chunk.paper.pmid);
+
+		if (!existing || chunk.similarity > existing.relevanceScore) {
+			paperMap.set(chunk.paper.pmid, {
+				pmid: chunk.paper.pmid,
+				title: chunk.paper.title,
+				authors: chunk.paper.authors,
+				year: chunk.paper.year,
+				doi: chunk.paper.doi,
+				publicationType: chunk.paper.publicationType,
+				relevanceScore: chunk.similarity,
+			});
+		}
+	}
+
+	return Array.from(paperMap.values()).sort(
+		(a, b) => b.relevanceScore - a.relevanceScore,
+	);
+}
+
+// ─── Log query analytics ─────────────────────────────────────────────────────
+
+async function logQuery(data: {
+	userId?: string;
+	query: string;
+	cacheHit: boolean;
+	chunksUsed: number;
+	responseTimeMs: number;
+	papersUsed: PaperReference[];
+}) {
+	const [inserted] = await db
+		.insert(researchSearchQueries)
+		.values({
+			userId: data.userId ?? null,
+			query: data.query,
+			cacheHit: data.cacheHit,
+			chunksUsed: data.chunksUsed,
+			responseTime: data.responseTimeMs,
+		})
+		.returning({ id: researchSearchQueries.id });
+
+	if (data.papersUsed.length > 0 && inserted) {
+		const papers = await db
+			.select({ id: nihPapers.id, pmid: nihPapers.pmid })
+			.from(nihPapers)
+			.where(
+				inArray(
+					nihPapers.pmid,
+					data.papersUsed.map((p) => p.pmid),
+				),
+			);
+
+		const pmidToId = new Map(papers.map((p) => [p.pmid, p.id]));
+
+		const validCitations = data.papersUsed
+			.filter((p) => pmidToId.has(p.pmid))
+			.map((p) => ({
+				queryId: inserted.id,
+				paperId: pmidToId.get(p.pmid)!,
+				relevanceScore: p.relevanceScore,
+			}));
+
+		if (validCitations.length > 0) {
+			await db.insert(researchQueryCitations).values(validCitations);
+		}
+	}
+}

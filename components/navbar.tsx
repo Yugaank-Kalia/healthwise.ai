@@ -18,6 +18,10 @@ export default function Navbar() {
 	const [mounted, setMounted] = useState(false);
 	useEffect(() => setMounted(true), []);
 
+	const isOnDashboard = pathName.startsWith('/dashboard');
+	const isOnResearch = pathName.startsWith('/research');
+	const isOnRecipes = pathName.startsWith('/recipes');
+
 	return (
 		<nav className='flex items-center justify-between p-5 mx-auto w-full'>
 			<Link href='/'>
@@ -29,16 +33,32 @@ export default function Navbar() {
 				<div className='flex items-center gap-3'>
 					<MobileConversationsMenu />
 					{session && (
-						<Link
-							href={
-								pathName === '/recipes'
-									? '/dashboard'
-									: '/recipes'
-							}
-							className='text-sm font-bold tracking-tight text-blue-900 dark:text-blue-300 transition-colors'
-						>
-							{pathName === '/recipes' ? 'Dashboard' : 'Recipes'}
-						</Link>
+						<>
+							{!isOnDashboard && (
+								<Link
+									href='/dashboard'
+									className='text-sm font-bold tracking-tight text-blue-900 dark:text-blue-300 transition-colors'
+								>
+									Nutrition
+								</Link>
+							)}
+							{!isOnResearch && (
+								<Link
+									href='/research'
+									className='text-sm font-bold tracking-tight text-blue-900 dark:text-blue-300 transition-colors'
+								>
+									Research
+								</Link>
+							)}
+							{!isOnRecipes && (
+								<Link
+									href='/recipes'
+									className='text-sm font-bold tracking-tight text-blue-900 dark:text-blue-300 transition-colors'
+								>
+									Recipes
+								</Link>
+							)}
+						</>
 					)}
 					<ThemeToggle />
 					{!mounted || isPending ? (

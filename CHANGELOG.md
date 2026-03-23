@@ -6,11 +6,13 @@
 
 ### Added
 
+- **Biomedical research mode** - `/research` runs its own RAG pipeline with a separate LLM prompt tuned for biomedical evidence levels (Strong/Moderate/Limited), clinical trial phases, and animal vs. human study distinctions. Shares the same `nih_papers`/`nih_chunks` tables as the nutrition pipeline; analytics tracked separately in `research_search_queries`.
+- **Follow-up suggestions** - after every completed response in both nutrition and research modes, the LLM generates 3 contextual follow-up questions rendered as clickable chips below the bubble. Clicking a chip pre-fills the input. Nutrition suggestions are framed for everyday health decisions; research suggestions target deeper scientific angles.
 - **Recipes page** - browse healthy recipes across Meat, Vegan, and Vegetarian categories, populated from the Spoonacular API. Three-card preview per category with inline "Show all" expansion and 6-per-page pagination.
 - **Recipe detail page** - full recipe at `/recipes/[slug]` with header image, prep time, calories, numbered ingredients list, and step-by-step instructions.
 - **Spoonacular seed script** - `scripts/seed-recipes.ts` fetches 10 healthy recipes per category (sorted by healthiness score) and upserts them into the `recipes` table.
 - **Slug-based recipe IDs** - recipe IDs are derived from the title (e.g. `red-lentil-tofu-pasta`) instead of UUIDs, making URLs human-readable and SEO friendly.
-- **Navbar recipes link** - authenticated users can toggle between Dashboard and Recipes from the navbar.
+- **Navbar** - links to Dashboard, Research, and Recipes; shows the two destinations you're not currently on.
 
 ### Changed
 
